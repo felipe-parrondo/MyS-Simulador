@@ -3,10 +3,18 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from typing import Callable, Optional, List, Tuple, Dict
 
+import numpy as np
 from utils import make_safe_func, numerical_derivative, sugerir_g_desde_f
 from methods import (
-    metodo_biseccion, newton_raphson, metodo_secante,
-    punto_fijo, punto_fijo_aitken
+    metodo_biseccion,
+    newton_raphson,
+    metodo_secante,
+    punto_fijo,
+    punto_fijo_aitken,
+    simpson13_bloque,
+    simpson38_bloque,
+    boole_bloque,
+    integrar_nc_compuesto,
 )
 
 try:
@@ -17,6 +25,7 @@ except Exception:  # pragma: no cover
     FigureCanvasTkAgg = None
     plt = None
     FuncAnimation = None
+
 
 class SimuladorRaices:
     def __init__(self, master: tk.Tk):
@@ -43,15 +52,31 @@ class SimuladorRaices:
         top.pack(fill=tk.X)
 
         ttk.Label(top, text="Método:").pack(side=tk.LEFT)
-        self.metodo_cb = ttk.Combobox(top, textvariable=self.current_method, state="readonly",
-                                      values=["Newton-Raphson", "Secante", "Bisección", "Punto Fijo", "Punto Fijo + Aitken"]) 
+        self.metodo_cb = ttk.Combobox(
+            top,
+            textvariable=self.current_method,
+            state="readonly",
+            values=[
+                "Newton-Raphson",
+                "Secante",
+                "Bisección",
+                "Punto Fijo",
+                "Punto Fijo + Aitken",
+            ],
+        )
         self.metodo_cb.pack(side=tk.LEFT, padx=6)
-        self.metodo_cb.bind("<<ComboboxSelected>>", lambda e: self._update_table_headers())
+        self.metodo_cb.bind(
+            "<<ComboboxSelected>>", lambda e: self._update_table_headers()
+        )
 
         ttk.Label(top, text="Decimales:").pack(side=tk.LEFT, padx=(12, 0))
-        tk.Spinbox(top, from_=2, to=15, textvariable=self.decimals, width=5).pack(side=tk.LEFT, padx=4)
+        tk.Spinbox(top, from_=2, to=15, textvariable=self.decimals, width=5).pack(
+            side=tk.LEFT, padx=4
+        )
 
-        ttk.Checkbutton(top, text="Modo estudiante (explicaciones)", variable=self.modo_estudiante).pack(side=tk.LEFT, padx=12)
+        ttk.Checkbutton(
+            top, text="Modo estudiante (explicaciones)", variable=self.modo_estudiante
+        ).pack(side=tk.LEFT, padx=12)
 
         nb = ttk.Notebook(cont)
         nb.pack(fill=tk.BOTH, expand=True, pady=6)
@@ -63,56 +88,90 @@ class SimuladorRaices:
         grid = ttk.Frame(tab_fun)
         grid.pack(fill=tk.X, pady=6)
 
-        ttk.Label(grid, text="f(x):").grid(row=0, column=0, sticky='w')
+        ttk.Label(grid, text="f(x):").grid(row=0, column=0, sticky="w")
         self.expr_f = tk.StringVar(value="x**2 - 2")
-        ttk.Entry(grid, textvariable=self.expr_f, width=50).grid(row=0, column=1, columnspan=4, sticky='we')
+        ttk.Entry(grid, textvariable=self.expr_f, width=50).grid(
+            row=0, column=1, columnspan=4, sticky="we"
+        )
 
-        ttk.Label(grid, text="f'(x) (opcional):").grid(row=1, column=0, sticky='w')
+        ttk.Label(grid, text="f'(x) (opcional):").grid(row=1, column=0, sticky="w")
         self.expr_df = tk.StringVar(value="")
-        ttk.Entry(grid, textvariable=self.expr_df, width=50).grid(row=1, column=1, columnspan=4, sticky='we')
+        ttk.Entry(grid, textvariable=self.expr_df, width=50).grid(
+            row=1, column=1, columnspan=4, sticky="we"
+        )
 
-        ttk.Label(grid, text="g(x) (punto fijo):").grid(row=2, column=0, sticky='w')
+        ttk.Label(grid, text="g(x) (punto fijo):").grid(row=2, column=0, sticky="w")
         self.expr_g = tk.StringVar(value="(x + 2/x)/2")
-        ttk.Entry(grid, textvariable=self.expr_g, width=50).grid(row=2, column=1, columnspan=4, sticky='we')
+        ttk.Entry(grid, textvariable=self.expr_g, width=50).grid(
+            row=2, column=1, columnspan=4, sticky="we"
+        )
 
-        ttk.Label(grid, text="x0:").grid(row=3, column=0, sticky='w')
+        ttk.Label(grid, text="x0:").grid(row=3, column=0, sticky="w")
         self.var_x0 = tk.StringVar(value="1.5")
-        ttk.Entry(grid, textvariable=self.var_x0, width=10).grid(row=3, column=1, sticky='w')
+        ttk.Entry(grid, textvariable=self.var_x0, width=10).grid(
+            row=3, column=1, sticky="w"
+        )
 
-        ttk.Label(grid, text="x1 (Secante):").grid(row=3, column=2, sticky='w')
+        ttk.Label(grid, text="x1 (Secante):").grid(row=3, column=2, sticky="w")
         self.var_x1 = tk.StringVar(value="2.0")
-        ttk.Entry(grid, textvariable=self.var_x1, width=10).grid(row=3, column=3, sticky='w')
+        ttk.Entry(grid, textvariable=self.var_x1, width=10).grid(
+            row=3, column=3, sticky="w"
+        )
 
-        ttk.Label(grid, text="Intervalo [a,b] (Bisección):").grid(row=4, column=0, sticky='w')
+        ttk.Label(grid, text="Intervalo [a,b] (Bisección):").grid(
+            row=4, column=0, sticky="w"
+        )
         self.var_a = tk.StringVar(value="0.0")
         self.var_b = tk.StringVar(value="2.0")
-        ttk.Entry(grid, textvariable=self.var_a, width=10).grid(row=4, column=1, sticky='w')
-        ttk.Entry(grid, textvariable=self.var_b, width=10).grid(row=4, column=2, sticky='w')
+        ttk.Entry(grid, textvariable=self.var_a, width=10).grid(
+            row=4, column=1, sticky="w"
+        )
+        ttk.Entry(grid, textvariable=self.var_b, width=10).grid(
+            row=4, column=2, sticky="w"
+        )
 
-        ttk.Label(grid, text="tol:").grid(row=5, column=0, sticky='w')
+        ttk.Label(grid, text="tol:").grid(row=5, column=0, sticky="w")
         self.var_tol = tk.StringVar(value="1e-8")
-        ttk.Entry(grid, textvariable=self.var_tol, width=10).grid(row=5, column=1, sticky='w')
+        ttk.Entry(grid, textvariable=self.var_tol, width=10).grid(
+            row=5, column=1, sticky="w"
+        )
 
-        ttk.Label(grid, text="max iter:").grid(row=5, column=2, sticky='w')
+        ttk.Label(grid, text="max iter:").grid(row=5, column=2, sticky="w")
         self.var_max = tk.StringVar(value="50")
-        ttk.Entry(grid, textvariable=self.var_max, width=10).grid(row=5, column=3, sticky='w')
+        ttk.Entry(grid, textvariable=self.var_max, width=10).grid(
+            row=5, column=3, sticky="w"
+        )
 
         btns = ttk.Frame(tab_fun)
         btns.pack(fill=tk.X, pady=8)
         ttk.Button(btns, text="Ejecutar", command=self.ejecutar).pack(side=tk.LEFT)
-        ttk.Button(btns, text="Comparar métodos", command=self.comparar_metodos).pack(side=tk.LEFT, padx=6)
-        ttk.Button(btns, text="Graficar", command=self.graficar).pack(side=tk.LEFT, padx=6)
+        ttk.Button(btns, text="Comparar métodos", command=self.comparar_metodos).pack(
+            side=tk.LEFT, padx=6
+        )
+        ttk.Button(btns, text="Graficar", command=self.graficar).pack(
+            side=tk.LEFT, padx=6
+        )
         ttk.Button(btns, text="Animar", command=self.animar).pack(side=tk.LEFT, padx=6)
-        ttk.Button(btns, text="Guardar CSV", command=self.guardar_csv).pack(side=tk.LEFT, padx=6)
-        ttk.Button(btns, text="Guardar gráfica", command=self.guardar_png).pack(side=tk.LEFT, padx=6)
-        ttk.Button(btns, text="Guardar animación (.mp4)", command=self.guardar_animacion).pack(side=tk.LEFT, padx=6)
-        ttk.Button(btns, text="Sugerir g(x)", command=self.sugerir_g).pack(side=tk.LEFT, padx=6)
-        ttk.Button(btns, text="Limpiar", command=self.limpiar).pack(side=tk.LEFT, padx=6)
+        ttk.Button(btns, text="Guardar CSV", command=self.guardar_csv).pack(
+            side=tk.LEFT, padx=6
+        )
+        ttk.Button(btns, text="Guardar gráfica", command=self.guardar_png).pack(
+            side=tk.LEFT, padx=6
+        )
+        ttk.Button(
+            btns, text="Guardar animación (.mp4)", command=self.guardar_animacion
+        ).pack(side=tk.LEFT, padx=6)
+        ttk.Button(btns, text="Sugerir g(x)", command=self.sugerir_g).pack(
+            side=tk.LEFT, padx=6
+        )
+        ttk.Button(btns, text="Limpiar", command=self.limpiar).pack(
+            side=tk.LEFT, padx=6
+        )
 
         tab_tabla = ttk.Frame(nb)
         nb.add(tab_tabla, text="Tabla de iteraciones")
 
-        self.tree = ttk.Treeview(tab_tabla, show='headings', height=18)
+        self.tree = ttk.Treeview(tab_tabla, show="headings", height=18)
         self.tree.pack(fill=tk.BOTH, expand=True)
         self._update_table_headers()
 
@@ -130,13 +189,117 @@ class SimuladorRaices:
 
         tab_help = ttk.Frame(nb)
         nb.add(tab_help, text="Ayuda / Teoría")
-        help_txt = tk.Text(tab_help, wrap='word', height=20)
+        tab_int = ttk.Frame(nb)
+        nb.add(tab_int, text="Integración")
+        self._build_integracion(tab_int)  # <-- llamada correcta
+        help_txt = tk.Text(tab_help, wrap="word", height=20)
         help_txt.pack(fill=tk.BOTH, expand=True)
         help_txt.insert(tk.END, self._texto_ayuda())
         help_txt.configure(state=tk.DISABLED)
 
         self.lbl_estado = ttk.Label(cont, text="Listo")
         self.lbl_estado.pack(fill=tk.X, pady=(4, 0))
+
+    def _build_integracion(self, parent):
+        frm = ttk.Frame(parent, padding=8)
+        frm.pack(fill=tk.BOTH, expand=True)
+
+        # Entradas
+        ttk.Label(frm, text="f(x):").grid(row=0, column=0, sticky="w")
+        self.expr_f_int = tk.StringVar(value="sin(x)")
+        ttk.Entry(frm, textvariable=self.expr_f_int, width=40).grid(
+            row=0, column=1, columnspan=3, sticky="we"
+        )
+
+        ttk.Label(frm, text="a").grid(row=1, column=0)
+        self.var_a_int = tk.StringVar(value="0")
+        ttk.Entry(frm, textvariable=self.var_a_int, width=10).grid(row=1, column=1)
+
+        ttk.Label(frm, text="b").grid(row=1, column=2)
+        self.var_b_int = tk.StringVar(value="3.14159")
+        ttk.Entry(frm, textvariable=self.var_b_int, width=10).grid(row=1, column=3)
+
+        ttk.Label(frm, text="n").grid(row=1, column=4)
+        self.var_n_int = tk.StringVar(value="11")
+        ttk.Entry(frm, textvariable=self.var_n_int, width=8).grid(row=1, column=5)
+
+        # Combo de método
+        ttk.Label(frm, text="Método").grid(row=2, column=0, sticky="w")
+        self.metodo_int = tk.StringVar(value="Simpson 1/3")
+        ttk.Combobox(
+            frm,
+            textvariable=self.metodo_int,
+            state="readonly",
+            values=[
+                "Rectángulo Medio",
+                "Trapecio",
+                "Simpson 1/3",
+                "Simpson 3/8",
+                "Boole",
+            ],
+            width=18,
+        ).grid(row=2, column=1, sticky="w")
+
+        # Botón integrar + resultado
+        ttk.Button(frm, text="Integrar", command=self._run_integracion).grid(
+            row=2, column=2, padx=6
+        )
+        self.lbl_res_int = ttk.Label(frm, text="Resultado: –")
+        self.lbl_res_int.grid(row=2, column=3, columnspan=3, sticky="w")
+
+        # Tabla de bloques usados
+        cols = ("Método", "a", "b", "m")
+        self.tree_int = ttk.Treeview(frm, columns=cols, show="headings", height=12)
+        for c in cols:
+            self.tree_int.heading(c, text=c)
+            self.tree_int.column(c, width=120, anchor="center")
+        self.tree_int.grid(row=3, column=0, columnspan=6, sticky="nsew", pady=6)
+        frm.rowconfigure(3, weight=1)
+
+        # Gráfico
+        if FigureCanvasTkAgg and plt:
+            self.fig_int, self.ax_int = plt.subplots(figsize=(7, 3.8))
+            self.canvas_int = FigureCanvasTkAgg(self.fig_int, master=frm)
+            self.canvas_int.get_tk_widget().grid(
+                row=4, column=0, columnspan=6, sticky="nsew"
+            )
+        else:
+            self.ax_int = None
+            self.canvas_int = None
+
+    def _run_integracion(self):
+        try:
+            f = make_safe_func(self.expr_f_int.get())
+            a = float(self.var_a_int.get())
+            b = float(self.var_b_int.get())
+            n = int(self.var_n_int.get())
+            metodo = self.metodo_int.get()
+            I, plan = integrar_nc_compuesto(f, a, b, n, metodo=metodo)
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            return
+
+        # Mostrar resultado
+        self.lbl_res_int.config(text=f"Resultado: {I:.10g}")
+
+        # Llenar tabla con el plan de bloques
+        for r in self.tree_int.get_children():
+            self.tree_int.delete(r)
+        for tag, ai, bi, m in plan:
+            self.tree_int.insert("", "end", values=(tag, f"{ai:.6g}", f"{bi:.6g}", m))
+
+        # Graficar f(x) y sombrear bloques
+        if self.ax_int and self.canvas_int:
+            X = np.linspace(a, b, 600)
+            Y = [f(x) for x in X]
+            self.ax_int.clear()
+            self.ax_int.grid(True, ls=":")
+            self.ax_int.plot(X, Y, label="f(x)")
+            self.ax_int.axhline(0, color="k", ls="--")
+            for tag, ai, bi, _ in plan:
+                self.ax_int.axvspan(ai, bi, alpha=0.12)  # sombrear bloque
+            self.ax_int.legend()
+            self.canvas_int.draw()
 
     def _texto_ayuda(self) -> str:
         return (
@@ -163,7 +326,7 @@ class SimuladorRaices:
         self.tree["columns"] = cols
         for c in cols:
             self.tree.heading(c, text=c)
-            self.tree.column(c, width=120, anchor='center')
+            self.tree.column(c, width=120, anchor="center")
 
     def _llenar_tabla(self, history: List[Tuple]):
         for row in self.tree.get_children():
@@ -176,13 +339,17 @@ class SimuladorRaices:
                     vals.append(f"{v:.{d}g}")
                 else:
                     vals.append(str(v))
-            self.tree.insert('', 'end', values=tuple(vals))
+            self.tree.insert("", "end", values=tuple(vals))
 
     def ejecutar(self):
         try:
             metodo = self.current_method.get()
             f = make_safe_func(self.expr_f.get())
-            df = make_safe_func(self.expr_df.get()) if self.expr_df.get().strip() else None
+            df = (
+                make_safe_func(self.expr_df.get())
+                if self.expr_df.get().strip()
+                else None
+            )
             g = make_safe_func(self.expr_g.get())
             x0 = float(self.var_x0.get())
             x1 = float(self.var_x1.get())
@@ -224,7 +391,11 @@ class SimuladorRaices:
     def comparar_metodos(self):
         try:
             f = make_safe_func(self.expr_f.get())
-            df = make_safe_func(self.expr_df.get()) if self.expr_df.get().strip() else None
+            df = (
+                make_safe_func(self.expr_df.get())
+                if self.expr_df.get().strip()
+                else None
+            )
             g = make_safe_func(self.expr_g.get())
             x0 = float(self.var_x0.get())
             x1 = float(self.var_x1.get())
@@ -279,11 +450,11 @@ class SimuladorRaices:
         self.tree["columns"] = cols
         for c in cols:
             self.tree.heading(c, text=c)
-            self.tree.column(c, width=160, anchor='center')
+            self.tree.column(c, width=160, anchor="center")
         for m, r in resultados.items():
             iters = len(historias.get(m, []))
             r_txt = "-" if r is None else f"{r:.6g}"
-            self.tree.insert('', 'end', values=(m, r_txt, iters))
+            self.tree.insert("", "end", values=(m, r_txt, iters))
 
     def _grafica_comparacion(self, f, g, historias):
         if not (self.ax and self.canvas):
@@ -301,8 +472,8 @@ class SimuladorRaices:
         self.ax.clear()
         try:
             Y = [f(x) for x in X]
-            self.ax.plot(X, Y, label='f(x)')
-            self.ax.axhline(0, color='k', ls='--')
+            self.ax.plot(X, Y, label="f(x)")
+            self.ax.axhline(0, color="k", ls="--")
         except Exception:
             pass
 
@@ -311,7 +482,12 @@ class SimuladorRaices:
             if not xs_plot:
                 continue
             try:
-                self.ax.plot(xs_plot, [f(x) for x in xs_plot], 'o-', label=f"Iteraciones {metodo}")
+                self.ax.plot(
+                    xs_plot,
+                    [f(x) for x in xs_plot],
+                    "o-",
+                    label=f"Iteraciones {metodo}",
+                )
             except Exception:
                 pass
         self.ax.legend()
@@ -334,31 +510,53 @@ class SimuladorRaices:
             xmin, xmax = x0 - 5, x0 + 5
         else:
             xs_plot = [rec[1] for rec in hist if isinstance(rec[1], (int, float))]
-            xmin, xmax = (min(xs_plot) - 1, max(xs_plot) + 1) if xs_plot else (x0 - 5, x0 + 5)
+            xmin, xmax = (
+                (min(xs_plot) - 1, max(xs_plot) + 1) if xs_plot else (x0 - 5, x0 + 5)
+            )
         X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
 
         if metodo in ("Punto Fijo", "Punto Fijo + Aitken"):
             try:
                 Yg = [g(x) for x in X]
-                self.ax.plot(X, Yg, label='g(x)')
-                self.ax.plot(X, X, '--', label='y=x')
+                self.ax.plot(X, Yg, label="g(x)")
+                self.ax.plot(X, X, "--", label="y=x")
                 if hist:
-                    xs_plot = [rec[1] for rec in hist if isinstance(rec[1], (int, float))]
-                    self.ax.plot(xs_plot, [g(x) for x in xs_plot], 'o-', label='Iteraciones')
+                    xs_plot = [
+                        rec[1] for rec in hist if isinstance(rec[1], (int, float))
+                    ]
+                    self.ax.plot(
+                        xs_plot, [g(x) for x in xs_plot], "o-", label="Iteraciones"
+                    )
                 if self.ultimo_resultado is not None:
-                    self.ax.plot(self.ultimo_resultado, self.ultimo_resultado, 'ro', markersize=8, label='Punto fijo estimado')
+                    self.ax.plot(
+                        self.ultimo_resultado,
+                        self.ultimo_resultado,
+                        "ro",
+                        markersize=8,
+                        label="Punto fijo estimado",
+                    )
             except Exception:
                 pass
         else:
             try:
                 Y = [f(x) for x in X]
-                self.ax.plot(X, Y, label='f(x)')
-                self.ax.axhline(0, color='k', ls='--')
+                self.ax.plot(X, Y, label="f(x)")
+                self.ax.axhline(0, color="k", ls="--")
                 if hist:
-                    xs_plot = [rec[1] for rec in hist if isinstance(rec[1], (int, float))]
-                    self.ax.plot(xs_plot, [f(x) for x in xs_plot], 'o-', label='Iteraciones')
+                    xs_plot = [
+                        rec[1] for rec in hist if isinstance(rec[1], (int, float))
+                    ]
+                    self.ax.plot(
+                        xs_plot, [f(x) for x in xs_plot], "o-", label="Iteraciones"
+                    )
                 if self.ultimo_resultado is not None:
-                    self.ax.plot(self.ultimo_resultado, 0, 'ro', markersize=8, label='Raíz estimada')
+                    self.ax.plot(
+                        self.ultimo_resultado,
+                        0,
+                        "ro",
+                        markersize=8,
+                        label="Raíz estimada",
+                    )
             except Exception:
                 pass
         self.ax.legend()
@@ -366,11 +564,15 @@ class SimuladorRaices:
 
     def animar(self):
         if not (self.ax and self.canvas and FuncAnimation):
-            messagebox.showerror("Error", "Animación no disponible (matplotlib.animation)")
+            messagebox.showerror(
+                "Error", "Animación no disponible (matplotlib.animation)"
+            )
             return
         hist = self.historia_actual
         if not hist:
-            messagebox.showwarning("Atención", "Ejecuta primero un método para generar iteraciones")
+            messagebox.showwarning(
+                "Atención", "Ejecuta primero un método para generar iteraciones"
+            )
             return
         metodo = self.current_method.get()
         try:
@@ -386,13 +588,13 @@ class SimuladorRaices:
         X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
         if metodo in ("Punto Fijo", "Punto Fijo + Aitken"):
             Yg = [g(x) for x in X]
-            self.ax.plot(X, Yg, label='g(x)')
-            self.ax.plot(X, X, '--', label='y=x')
+            self.ax.plot(X, Yg, label="g(x)")
+            self.ax.plot(X, X, "--", label="y=x")
         else:
             Y = [f(x) for x in X]
-            self.ax.plot(X, Y, label='f(x)')
-            self.ax.axhline(0, color='k', ls='--')
-        linea_iter, = self.ax.plot([], [], 'o-', label='Iteraciones')
+            self.ax.plot(X, Y, label="f(x)")
+            self.ax.axhline(0, color="k", ls="--")
+        (linea_iter,) = self.ax.plot([], [], "o-", label="Iteraciones")
         self.ax.legend()
 
         if metodo in ("Punto Fijo", "Punto Fijo + Aitken"):
@@ -405,10 +607,17 @@ class SimuladorRaices:
             return (linea_iter,)
 
         def update(i):
-            linea_iter.set_data(xs_plot[:i+1], ys[:i+1])
+            linea_iter.set_data(xs_plot[: i + 1], ys[: i + 1])
             return (linea_iter,)
 
-        self.anim = FuncAnimation(self.fig, update, init_func=init, frames=len(xs_plot), interval=600, blit=True)
+        self.anim = FuncAnimation(
+            self.fig,
+            update,
+            init_func=init,
+            frames=len(xs_plot),
+            interval=600,
+            blit=True,
+        )
         self.canvas.draw()
         self.nb.select(2)
 
@@ -416,11 +625,13 @@ class SimuladorRaices:
         if not self.historia_actual and not self.historia_comparacion:
             messagebox.showerror("Error", "No hay datos para guardar")
             return
-        file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV","*.csv")])
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv", filetypes=[("CSV", "*.csv")]
+        )
         if not file_path:
             return
         try:
-            with open(file_path, 'w', newline='') as f:
+            with open(file_path, "w", newline="") as f:
                 w = csv.writer(f)
                 if self.historia_comparacion:
                     w.writerow(["Resumen de comparación"])
@@ -446,23 +657,29 @@ class SimuladorRaices:
         if not (self.ax and self.canvas):
             messagebox.showerror("Error", "matplotlib no disponible")
             return
-        file_path = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG","*.png"), ("PDF","*.pdf")])
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".png", filetypes=[("PNG", "*.png"), ("PDF", "*.pdf")]
+        )
         if not file_path:
             return
         try:
-            self.fig.savefig(file_path, bbox_inches='tight', dpi=150)
+            self.fig.savefig(file_path, bbox_inches="tight", dpi=150)
             messagebox.showinfo("Éxito", f"Gráfica guardada en {file_path}")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
     def guardar_animacion(self):
-        if not hasattr(self, 'anim') or self.anim is None:
-            messagebox.showerror("Error", "Primero crea la animación con el botón 'Animar'")
+        if not hasattr(self, "anim") or self.anim is None:
+            messagebox.showerror(
+                "Error", "Primero crea la animación con el botón 'Animar'"
+            )
             return
         if not FuncAnimation:
             messagebox.showerror("Error", "Animación no disponible")
             return
-        file_path = filedialog.asksaveasfilename(defaultextension=".mp4", filetypes=[("MP4","*.mp4")])
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".mp4", filetypes=[("MP4", "*.mp4")]
+        )
         if not file_path:
             return
         try:
@@ -490,7 +707,9 @@ class SimuladorRaices:
             messagebox.showerror("Error", str(e))
             return
         if not cands:
-            messagebox.showwarning("Sugerencias", "No se pudieron generar sugerencias para g(x)")
+            messagebox.showwarning(
+                "Sugerencias", "No se pudieron generar sugerencias para g(x)"
+            )
             return
         dlg = tk.Toplevel(self.master)
         dlg.title("Sugerencias para g(x)")
@@ -499,14 +718,18 @@ class SimuladorRaices:
         for c in cands:
             lb.insert(tk.END, c)
         lb.pack(padx=10, pady=6)
+
         def aplicar():
             sel = lb.curselection()
             if sel:
                 self.expr_g.set(lb.get(sel[0]))
             dlg.destroy()
+
         ttk.Button(dlg, text="Usar selección", command=aplicar).pack(pady=8)
 
-    def _verificar_contraccion(self, g: Callable[[float], float], x0: float, solo_warn: bool=False):
+    def _verificar_contraccion(
+        self, g: Callable[[float], float], x0: float, solo_warn: bool = False
+    ):
         xs = [x0 + dx for dx in (-0.5, -0.25, 0, 0.25, 0.5)]
         vals = []
         for x in xs:
@@ -524,7 +747,9 @@ class SimuladorRaices:
             if solo_warn:
                 self._status_err(msg + "≥ 1 (puede no converger)")
             else:
-                messagebox.showwarning("Advertencia de convergencia", msg + ": puede divergir.")
+                messagebox.showwarning(
+                    "Advertencia de convergencia", msg + ": puede divergir."
+                )
 
     def _status_ok(self, msg: str):
         self.lbl_estado.configure(text=msg)
