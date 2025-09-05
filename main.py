@@ -1,4 +1,5 @@
 from tkinter import ttk
+from methods import integrar_nc_compuesto  # Quitamos simpson13_bloque
 import tkinter as tk
 
 from gui import SimuladorRaices

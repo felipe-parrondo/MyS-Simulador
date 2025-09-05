@@ -11,10 +11,7 @@ from methods import (
     metodo_secante,
     punto_fijo,
     punto_fijo_aitken,
-    simpson13_bloque,
-    simpson38_bloque,
-    boole_bloque,
-    integrar_nc_compuesto,
+    integrar_nc_compuesto,  # <--- solo esta de integración
 )
 
 try:
@@ -62,6 +59,7 @@ class SimuladorRaices:
                 "Bisección",
                 "Punto Fijo",
                 "Punto Fijo + Aitken",
+                "Newton-Cotes",  # <--- Agrega esta línea
             ],
         )
         self.metodo_cb.pack(side=tk.LEFT, padx=6)
@@ -321,6 +319,8 @@ class SimuladorRaices:
             cols = ("n", "x_n", "x_{n+1}", "err_abs", "err_rel")
         elif method == "Bisección":
             cols = ("n", "a", "b", "m", "f(m)", "err_abs", "err_rel")
+        elif method == "Newton-Cotes":  # <--- Agrega esto
+            cols = ("Método", "a", "b", "m")
         else:  # Punto Fijo (+ Aitken)
             cols = ("n", "x_n", "g(x_n)", "err_abs", "err_rel")
         self.tree["columns"] = cols
@@ -371,6 +371,12 @@ class SimuladorRaices:
             elif metodo == "Punto Fijo":
                 self._verificar_contraccion(g, x0)
                 root, hist = punto_fijo(g, x0, tol, max_iter)
+            elif metodo == "Newton-Cotes":  # <--- Agrega este bloque
+                # Pide los parámetros necesarios
+                n = 10  # Puedes pedirlo por input o usar un valor por defecto
+                I, plan = integrar_nc_compuesto(f, a, b, n, metodo="Simpson 1/3")
+                root = I
+                hist = [(tag, ai, bi, m) for tag, ai, bi, m in plan]
             else:
                 self._verificar_contraccion(g, x0)
                 root, hist = punto_fijo_aitken(g, x0, tol, max_iter)

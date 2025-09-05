@@ -1,3 +1,4 @@
+import math
 from typing import Callable, Optional, List, Tuple
 from utils import numerical_derivative
 
@@ -105,18 +106,45 @@ def punto_fijo_aitken(g: Callable[[float], float], x0: float, tol: float = 1e-8,
         x = x_acc
     return None, history
 
-def simpson13_bloque(f,a,b):
-    h=(b-a)/2; return (h/3)*(f(a)+4*f(a+h)+f(b))
-
-def simpson38_bloque(f,a,b):
-    h=(b-a)/3; return (3*h/8)*(f(a)+3*f(a+h)+3*f(a+2*h)+f(b))
-
-def boole_bloque(f,a,b):
-    h=(b-a)/4; return (2*h/45)*(7*f(a)+32*f(a+h)+12*f(a+2*h)+32*f(a+3*h)+7*f(b))
+def lhopital(f: Callable[[float], float], x: float, h: float = 1e-6, max_iter: int = 5):
+    """Aplica L'Hôpital numéricamente hasta que no haya indeterminación."""
+    for _ in range(max_iter):
+        try:
+            val = f(x)
+            if not (math.isnan(val) or math.isinf(val)):
+                return val
+        except Exception:
+            pass
+        # Derivada numérica
+        f = lambda t, f=f: numerical_derivative(f, t, h)
+    raise ValueError(f"No se pudo resolver la indeterminación en x={x}")
 
 def integrar_nc_compuesto(f, a, b, n, metodo="Simpson 1/3"):
     if n<=0 or b<=a: raise ValueError("Datos inválidos")
     h=(b-a)/n; k=0; xk=a; I=0.0; plan=[]
+
+    def eval_f(x):
+        try:
+            val = f(x)
+            if math.isnan(val) or math.isinf(val):
+                # Intentar L'Hôpital
+                return lhopital(f, x)
+            return val
+        except Exception:
+            # Intentar L'Hôpital
+            return lhopital(f, x)
+
+    def simpson13_bloque(f,a,b):
+        h=(b-a)/2
+        return (h/3)*(eval_f(a)+4*eval_f(a+h)+eval_f(b))
+
+    def simpson38_bloque(f,a,b):
+        h=(b-a)/3
+        return (3*h/8)*(eval_f(a)+3*eval_f(a+h)+3*eval_f(a+2*h)+eval_f(b))
+
+    def boole_bloque(f,a,b):
+        h=(b-a)/4
+        return (2*h/45)*(7*eval_f(a)+32*eval_f(a+h)+12*eval_f(a+2*h)+32*eval_f(a+3*h)+7*eval_f(b))
 
     def aplicar(m, tag):
         nonlocal I,k,xk,plan
@@ -124,16 +152,15 @@ def integrar_nc_compuesto(f, a, b, n, metodo="Simpson 1/3"):
         if tag=="S13": Ik=simpson13_bloque(f,xi,xf)
         elif tag=="S38": Ik=simpson38_bloque(f,xi,xf)
         elif tag=="BOOLE": Ik=boole_bloque(f,xi,xf)
-        elif tag=="TRAP": Ik = (xf-xi)*(f(xi)+f(xf))/2   # bloque trapecio (1)
-        elif tag=="MID":  Ik = (xf-xi)*f((xi+xf)/2)      # bloque rect. medio (1)
+        elif tag=="TRAP": Ik = (xf-xi)*(eval_f(xi)+eval_f(xf))/2
+        elif tag=="MID":  Ik = (xf-xi)*eval_f((xi+xf)/2)
         else: raise ValueError("Método desconocido")
         I+=Ik; plan.append((tag,xi,xf,m)); xk=xf; k+=m
 
     if metodo=="Simpson 1/3":
         while k+2<=n: aplicar(2,"S13")
-        if n-k==1:    # reemplazo final 2 -> 3
+        if n-k==1:
             if plan and plan[-1][0]=="S13":
-                # deshacer último bloque 1/3
                 _,xi,xf,_=plan.pop(); k-=2; xk=xi; I-=simpson13_bloque(f,xi,xf)
             aplicar(3,"S38")
     elif metodo=="Simpson 3/8":
