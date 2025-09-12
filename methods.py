@@ -89,20 +89,51 @@ def punto_fijo(g: Callable[[float], float], x0: float, tol: float = 1e-8, max_it
         x = x_next
     return None, history
 
-def punto_fijo_aitken(g: Callable[[float], float], x0: float, tol: float = 1e-8, max_iter: int = 50):
+def punto_fijo_aitken(f: Callable[[float], float], g: Callable[[float], float], x0: float, tol: float = 1e-8, max_iter: int = 50):
+    """
+    Fixed-point iteration with Aitken's delta-squared acceleration.
+    
+    Args:
+        f: The function f(x) = 0 to solve (for validation)
+        g: The function g(x) = x for fixed-point iteration
+        x0: Initial guess
+        tol: Tolerance for convergence
+        max_iter: Maximum number of iterations
+    
+    Returns:
+        (root, history): Root found and iteration history
+    """
     history = []
     x = x0
+    
     for n in range(max_iter):
-        x1 = g(x)
-        x2 = g(x1)
-        denom = x2 - 2 * x1 + x
-        x_acc = x2 - (x2 - x1) ** 2 / denom if denom != 0 else x2
+        # Generate three consecutive terms for Aitken acceleration
+        x1 = g(x)      # x_{n+1}
+        x2 = g(x1)     # x_{n+2}
+        
+        # Apply Aitken's delta-squared acceleration
+        denom = x2 - 2*x1 + x
+        if abs(denom) < 1e-14:  # Numerical stability check
+            x_acc = x2  # Fallback to regular iteration
+        else:
+            x_acc = x - (x1 - x)**2 / denom
+        
+        # Calculate errors
         abs_err = abs(x_acc - x)
         rel_err = abs_err / abs(x_acc) if x_acc != 0 else float('inf')
+        
+        # Store iteration info
         history.append((n, x, x_acc, abs_err, rel_err))
+        
+        # Check convergence
         if abs_err < tol:
-            return x_acc, history
-        x = x_acc
+            # Verify that the result is actually a root of f(x) = 0
+            f_val = f(x_acc)
+            if abs(f_val) < tol * 10:  # Allow some tolerance for f(x)
+                return x_acc, history
+        
+        x = x_acc  # Use accelerated value for next iteration
+    
     return None, history
 
 def simpson13_bloque(f,a,b):
