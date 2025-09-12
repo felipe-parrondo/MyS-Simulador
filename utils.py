@@ -1,13 +1,26 @@
 import ast
 import math
+import re
 from typing import Callable, List
 
 # ==========================
 # Utilidades seguras y ayudas
 # ==========================
 
+def replace_math_constants(expr: str) -> str:
+    # Replace standalone 'e' with math.e, but not when it's part of a word
+    expr = re.sub(r'\be\b', str(math.e), expr)
+    # Replace standalone 'pi' with math.pi, but not when it's part of a word
+    expr = re.sub(r'\bpi\b', str(math.pi), expr)
+    return expr
+
 def make_safe_func(expr: str) -> Callable[[float], float]:
-    """Compila una expresión en una función segura f(x)."""
+    # Replace 'e' and 'pi' with their numerical values
+    expr = replace_math_constants(expr)
+    
+    # Convert caret (^) to double asterisk (**) for Python syntax
+    expr = re.sub(r'\^', '**', expr)
+    
     allowed_names = {k: getattr(math, k) for k in dir(math) if not k.startswith("__")}
     allowed_names.update({"abs": abs, "pow": pow})
     expr_ast = ast.parse(expr, mode='eval')

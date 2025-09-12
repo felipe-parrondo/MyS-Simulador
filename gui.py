@@ -36,10 +36,84 @@ class SimuladorRaices:
         self.current_method = tk.StringVar(value="Newton-Raphson")
         self.decimals = tk.IntVar(value=6)
         self.modo_estudiante = tk.BooleanVar(value=False)
+        self.zoom_out = tk.BooleanVar(value=True)  # True = zoomed out, False = zoomed in
 
         self.historia_actual: List[Tuple] = []
         self.historia_comparacion: Dict[str, List[Tuple]] = {}
         self.ultimo_resultado: Optional[float] = None
+
+        # Method configuration: {method_name: {field_name: (required, label, default_value)}}
+        self.method_config = {
+            "Newton-Raphson": {
+                "f": (True, "f(x) *", "x**2 - 2"),
+                "df": (False, "f'(x)", ""),
+                "x0": (True, "x0 *", "1.5"),
+                "tol": (True, "tol *", "1e-8"),
+                "max_iter": (True, "max iter *", "50")
+            },
+            "Secante": {
+                "f": (True, "f(x) *", "x**2 - 2"),
+                "x0": (True, "x0 *", "1.5"),
+                "x1": (True, "x1 *", "2.0"),
+                "tol": (True, "tol *", "1e-8"),
+                "max_iter": (True, "max iter *", "50")
+            },
+            "Bisección": {
+                "f": (True, "f(x) *", "x**2 - 2"),
+                "a": (True, "a *", "0.0"),
+                "b": (True, "b *", "2.0"),
+                "tol": (True, "tol *", "1e-8"),
+                "max_iter": (True, "max iter *", "50")
+            },
+            "Punto Fijo": {
+                "g": (True, "g(x) *", "(x + 2/x)/2"),
+                "x0": (True, "x0 *", "1.5"),
+                "tol": (True, "tol *", "1e-8"),
+                "max_iter": (True, "max iter *", "50")
+            },
+            "Punto Fijo + Aitken": {
+                "f": (True, "f(x) *", "x**2 - 2"),
+                "g": (True, "g(x) *", "(x + 2/x)/2"),
+                "x0": (True, "x0 *", "1.5"),
+                "tol": (True, "tol *", "1e-8"),
+                "max_iter": (True, "max iter *", "50")
+            },
+            "Simpson 1/3": {
+                "f": (True, "f(x) *", "sin(x)"),
+                "a": (True, "a *", "0"),
+                "b": (True, "b *", "3.14159"),
+                "n": (True, "n *", "11")
+            },
+            "Simpson 3/8": {
+                "f": (True, "f(x) *", "sin(x)"),
+                "a": (True, "a *", "0"),
+                "b": (True, "b *", "3.14159"),
+                "n": (True, "n *", "11")
+            },
+            "Boole": {
+                "f": (True, "f(x) *", "sin(x)"),
+                "a": (True, "a *", "0"),
+                "b": (True, "b *", "3.14159"),
+                "n": (True, "n *", "11")
+            },
+            "Trapecio": {
+                "f": (True, "f(x) *", "sin(x)"),
+                "a": (True, "a *", "0"),
+                "b": (True, "b *", "3.14159"),
+                "n": (True, "n *", "11")
+            },
+            "Rectángulo Medio": {
+                "f": (True, "f(x) *", "sin(x)"),
+                "a": (True, "a *", "0"),
+                "b": (True, "b *", "3.14159"),
+                "n": (True, "n *", "11")
+            }
+        }
+
+        # Input field variables
+        self.input_vars = {}
+        self.input_widgets = {}
+        self.input_labels = {}
 
         self._build_ui()
 
@@ -62,11 +136,16 @@ class SimuladorRaices:
                 "Bisección",
                 "Punto Fijo",
                 "Punto Fijo + Aitken",
+                "Simpson 1/3",
+                "Simpson 3/8",
+                "Boole",
+                "Trapecio",
+                "Rectángulo Medio",
             ],
         )
         self.metodo_cb.pack(side=tk.LEFT, padx=6)
         self.metodo_cb.bind(
-            "<<ComboboxSelected>>", lambda e: self._update_table_headers()
+            "<<ComboboxSelected>>", lambda e: self._update_method_inputs()
         )
 
         ttk.Label(top, text="Decimales:").pack(side=tk.LEFT, padx=(12, 0))
@@ -77,6 +156,7 @@ class SimuladorRaices:
         ttk.Checkbutton(
             top, text="Modo estudiante (explicaciones)", variable=self.modo_estudiante
         ).pack(side=tk.LEFT, padx=12)
+        
 
         nb = ttk.Notebook(cont)
         nb.pack(fill=tk.BOTH, expand=True, pady=6)
@@ -85,62 +165,35 @@ class SimuladorRaices:
         tab_fun = ttk.Frame(nb)
         nb.add(tab_fun, text="Funciones y Parámetros")
 
-        grid = ttk.Frame(tab_fun)
-        grid.pack(fill=tk.X, pady=6)
-
-        ttk.Label(grid, text="f(x):").grid(row=0, column=0, sticky="w")
-        self.expr_f = tk.StringVar(value="x**2 - 2")
-        ttk.Entry(grid, textvariable=self.expr_f, width=50).grid(
-            row=0, column=1, columnspan=4, sticky="we"
+        # Main content frame with input fields and result display
+        main_content = ttk.Frame(tab_fun)
+        main_content.pack(fill=tk.X, pady=6)
+        
+        # Left side: Dynamic input fields container
+        self.input_container = ttk.Frame(main_content)
+        self.input_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        
+        # Right side: Result display area (initially hidden)
+        self.result_frame = ttk.LabelFrame(main_content, text="Resultado", padding=10)
+        # Don't pack it initially - it will be shown when there's a result
+        
+        # Result display label
+        self.result_label = ttk.Label(
+            self.result_frame, 
+            text="", 
+            font=("Arial", 14, "bold"),
+            foreground="blue"
         )
-
-        ttk.Label(grid, text="f'(x) (opcional):").grid(row=1, column=0, sticky="w")
-        self.expr_df = tk.StringVar(value="")
-        ttk.Entry(grid, textvariable=self.expr_df, width=50).grid(
-            row=1, column=1, columnspan=4, sticky="we"
+        self.result_label.pack(pady=10)
+        
+        # Method info label
+        self.method_info_label = ttk.Label(
+            self.result_frame, 
+            text="", 
+            font=("Arial", 10),
+            foreground="gray"
         )
-
-        ttk.Label(grid, text="g(x) (punto fijo):").grid(row=2, column=0, sticky="w")
-        self.expr_g = tk.StringVar(value="(x + 2/x)/2")
-        ttk.Entry(grid, textvariable=self.expr_g, width=50).grid(
-            row=2, column=1, columnspan=4, sticky="we"
-        )
-
-        ttk.Label(grid, text="x0:").grid(row=3, column=0, sticky="w")
-        self.var_x0 = tk.StringVar(value="1.5")
-        ttk.Entry(grid, textvariable=self.var_x0, width=10).grid(
-            row=3, column=1, sticky="w"
-        )
-
-        ttk.Label(grid, text="x1 (Secante):").grid(row=3, column=2, sticky="w")
-        self.var_x1 = tk.StringVar(value="2.0")
-        ttk.Entry(grid, textvariable=self.var_x1, width=10).grid(
-            row=3, column=3, sticky="w"
-        )
-
-        ttk.Label(grid, text="Intervalo [a,b] (Bisección):").grid(
-            row=4, column=0, sticky="w"
-        )
-        self.var_a = tk.StringVar(value="0.0")
-        self.var_b = tk.StringVar(value="2.0")
-        ttk.Entry(grid, textvariable=self.var_a, width=10).grid(
-            row=4, column=1, sticky="w"
-        )
-        ttk.Entry(grid, textvariable=self.var_b, width=10).grid(
-            row=4, column=2, sticky="w"
-        )
-
-        ttk.Label(grid, text="tol:").grid(row=5, column=0, sticky="w")
-        self.var_tol = tk.StringVar(value="1e-8")
-        ttk.Entry(grid, textvariable=self.var_tol, width=10).grid(
-            row=5, column=1, sticky="w"
-        )
-
-        ttk.Label(grid, text="max iter:").grid(row=5, column=2, sticky="w")
-        self.var_max = tk.StringVar(value="50")
-        ttk.Entry(grid, textvariable=self.var_max, width=10).grid(
-            row=5, column=3, sticky="w"
-        )
+        self.method_info_label.pack(pady=5)
 
         btns = ttk.Frame(tab_fun)
         btns.pack(fill=tk.X, pady=8)
@@ -167,31 +220,34 @@ class SimuladorRaices:
         ttk.Button(btns, text="Limpiar", command=self.limpiar).pack(
             side=tk.LEFT, padx=6
         )
+        
+        # Zoom control
+        ttk.Checkbutton(
+            btns, text="Vista ampliada", variable=self.zoom_out,
+            command=self._on_zoom_changed
+        ).pack(side=tk.LEFT, padx=12)
+
+        # Graphics display in main tab
+        if FigureCanvasTkAgg and plt:
+            self.fig, self.ax = plt.subplots(figsize=(7.5, 4.5))
+            self.canvas = FigureCanvasTkAgg(self.fig, master=tab_fun)
+            self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, pady=6)
+        else:
+            self.ax = None
+            self.canvas = None
+            ttk.Label(tab_fun, text="matplotlib no disponible").pack(pady=12)
 
         tab_tabla = ttk.Frame(nb)
         nb.add(tab_tabla, text="Tabla de iteraciones")
 
         self.tree = ttk.Treeview(tab_tabla, show="headings", height=18)
         self.tree.pack(fill=tk.BOTH, expand=True)
-        self._update_table_headers()
-
-        tab_plot = ttk.Frame(nb)
-        nb.add(tab_plot, text="Gráficas")
-
-        if FigureCanvasTkAgg and plt:
-            self.fig, self.ax = plt.subplots(figsize=(7.5, 4.5))
-            self.canvas = FigureCanvasTkAgg(self.fig, master=tab_plot)
-            self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        else:
-            self.ax = None
-            self.canvas = None
-            ttk.Label(tab_plot, text="matplotlib no disponible").pack(pady=12)
+        
+        # Initialize input fields for the default method (after tree is created)
+        self._update_method_inputs()
 
         tab_help = ttk.Frame(nb)
         nb.add(tab_help, text="Ayuda / Teoría")
-        tab_int = ttk.Frame(nb)
-        nb.add(tab_int, text="Integración")
-        self._build_integracion(tab_int)  # <-- llamada correcta
         help_txt = tk.Text(tab_help, wrap="word", height=20)
         help_txt.pack(fill=tk.BOTH, expand=True)
         help_txt.insert(tk.END, self._texto_ayuda())
@@ -200,118 +256,138 @@ class SimuladorRaices:
         self.lbl_estado = ttk.Label(cont, text="Listo")
         self.lbl_estado.pack(fill=tk.X, pady=(4, 0))
 
-    def _build_integracion(self, parent):
-        frm = ttk.Frame(parent, padding=8)
-        frm.pack(fill=tk.BOTH, expand=True)
-
-        # Entradas
-        ttk.Label(frm, text="f(x):").grid(row=0, column=0, sticky="w")
-        self.expr_f_int = tk.StringVar(value="sin(x)")
-        ttk.Entry(frm, textvariable=self.expr_f_int, width=40).grid(
-            row=0, column=1, columnspan=3, sticky="we"
-        )
-
-        ttk.Label(frm, text="a").grid(row=1, column=0)
-        self.var_a_int = tk.StringVar(value="0")
-        ttk.Entry(frm, textvariable=self.var_a_int, width=10).grid(row=1, column=1)
-
-        ttk.Label(frm, text="b").grid(row=1, column=2)
-        self.var_b_int = tk.StringVar(value="3.14159")
-        ttk.Entry(frm, textvariable=self.var_b_int, width=10).grid(row=1, column=3)
-
-        ttk.Label(frm, text="n").grid(row=1, column=4)
-        self.var_n_int = tk.StringVar(value="11")
-        ttk.Entry(frm, textvariable=self.var_n_int, width=8).grid(row=1, column=5)
-
-        # Combo de método
-        ttk.Label(frm, text="Método").grid(row=2, column=0, sticky="w")
-        self.metodo_int = tk.StringVar(value="Simpson 1/3")
-        ttk.Combobox(
-            frm,
-            textvariable=self.metodo_int,
-            state="readonly",
-            values=[
-                "Rectángulo Medio",
-                "Trapecio",
-                "Simpson 1/3",
-                "Simpson 3/8",
-                "Boole",
-            ],
-            width=18,
-        ).grid(row=2, column=1, sticky="w")
-
-        # Botón integrar + resultado
-        ttk.Button(frm, text="Integrar", command=self._run_integracion).grid(
-            row=2, column=2, padx=6
-        )
-        self.lbl_res_int = ttk.Label(frm, text="Resultado: –")
-        self.lbl_res_int.grid(row=2, column=3, columnspan=3, sticky="w")
-
-        # Tabla de bloques usados
-        cols = ("Método", "a", "b", "m")
-        self.tree_int = ttk.Treeview(frm, columns=cols, show="headings", height=12)
-        for c in cols:
-            self.tree_int.heading(c, text=c)
-            self.tree_int.column(c, width=120, anchor="center")
-        self.tree_int.grid(row=3, column=0, columnspan=6, sticky="nsew", pady=6)
-        frm.rowconfigure(3, weight=1)
-
-        # Gráfico
-        if FigureCanvasTkAgg and plt:
-            self.fig_int, self.ax_int = plt.subplots(figsize=(7, 3.8))
-            self.canvas_int = FigureCanvasTkAgg(self.fig_int, master=frm)
-            self.canvas_int.get_tk_widget().grid(
-                row=4, column=0, columnspan=6, sticky="nsew"
-            )
-        else:
-            self.ax_int = None
-            self.canvas_int = None
-
-    def _run_integracion(self):
-        try:
-            f = make_safe_func(self.expr_f_int.get())
-            a = float(self.var_a_int.get())
-            b = float(self.var_b_int.get())
-            n = int(self.var_n_int.get())
-            metodo = self.metodo_int.get()
-            I, plan = integrar_nc_compuesto(f, a, b, n, metodo=metodo)
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-            return
-
-        # Mostrar resultado
-        self.lbl_res_int.config(text=f"Resultado: {I:.10g}")
-
-        # Llenar tabla con el plan de bloques
-        for r in self.tree_int.get_children():
-            self.tree_int.delete(r)
-        for tag, ai, bi, m in plan:
-            self.tree_int.insert("", "end", values=(tag, f"{ai:.6g}", f"{bi:.6g}", m))
-
-        # Graficar f(x) y sombrear bloques
-        if self.ax_int and self.canvas_int:
-            X = np.linspace(a, b, 600)
-            Y = [f(x) for x in X]
-            self.ax_int.clear()
-            self.ax_int.grid(True, ls=":")
-            self.ax_int.plot(X, Y, label="f(x)")
-            self.ax_int.axhline(0, color="k", ls="--")
-            for tag, ai, bi, _ in plan:
-                self.ax_int.axvspan(ai, bi, alpha=0.12)  # sombrear bloque
-            self.ax_int.legend()
-            self.canvas_int.draw()
 
     def _texto_ayuda(self) -> str:
         return (
-            "Métodos disponibles:\n"
+            "Métodos disponibles:\n\n"
+            "RAÍCES:\n"
             "• Bisección: requiere [a,b] con cambio de signo. Convergencia lineal.\n"
             "• Newton-Raphson: requiere f(x) y opcional f'(x). Convergencia cuadrática cerca de la raíz.\n"
             "• Secante: no requiere derivada. Convergencia superlineal.\n"
             "• Punto Fijo: requiere g(x). Converge si |g'(x*)|<1 (contracción).\n"
             "• Aitken: acelera la convergencia del punto fijo.\n\n"
+            "INTEGRACIÓN:\n"
+            "• Simpson 1/3: regla compuesta de Simpson 1/3 para integración numérica.\n"
+            "• Simpson 3/8: regla compuesta de Simpson 3/8 para integración numérica.\n"
+            "• Boole: regla de Boole para integración numérica de alta precisión.\n"
+            "• Trapecio: regla del trapecio compuesta para integración numérica.\n"
+            "• Rectángulo Medio: regla del rectángulo medio para integración numérica.\n\n"
             "Sugerir g(x): propone formas g(x)=x-λ f(x) con λ heurístico.\n"
             "Exportación: guarda tabla (CSV), gráfica (PNG) y animación (MP4).\n"
         )
+
+    def _update_method_inputs(self):
+        """Update input fields based on selected method."""
+        # Clear existing input fields
+        for widget in self.input_container.winfo_children():
+            widget.destroy()
+        
+        # Clear input tracking dictionaries
+        self.input_vars.clear()
+        self.input_widgets.clear()
+        self.input_labels.clear()
+        
+        method = self.current_method.get()
+        if method not in self.method_config:
+            return
+            
+        config = self.method_config[method]
+        row = 0
+        
+        # Create grid for input fields
+        grid = ttk.Frame(self.input_container)
+        grid.pack(fill=tk.X)
+        
+        for field_name, (required, label, default_value) in config.items():
+            # Create label
+            label_widget = ttk.Label(grid, text=label)
+            label_widget.grid(row=row, column=0, sticky="w", padx=(0, 10))
+            self.input_labels[field_name] = label_widget
+            
+            # Create variable and entry
+            var = tk.StringVar(value=default_value)
+            self.input_vars[field_name] = var
+            
+            if field_name in ["f", "df", "g"]:  # Function expressions get wider entries
+                entry = ttk.Entry(grid, textvariable=var, width=50)
+                entry.grid(row=row, column=1, columnspan=4, sticky="we")
+            else:  # Numeric inputs get smaller entries
+                entry = ttk.Entry(grid, textvariable=var, width=10)
+                entry.grid(row=row, column=1, sticky="w")
+            
+            self.input_widgets[field_name] = entry
+            row += 1
+        
+        # Update table headers
+        self._update_table_headers()
+
+    def _validate_required_inputs(self) -> List[str]:
+        """Validate that all required inputs are provided. Returns list of missing fields."""
+        method = self.current_method.get()
+        if method not in self.method_config:
+            return []
+        
+        missing_fields = []
+        config = self.method_config[method]
+        
+        for field_name, (required, label, _) in config.items():
+            if required and field_name in self.input_vars:
+                value = self.input_vars[field_name].get().strip()
+                if not value:
+                    # Remove asterisk from label for error message
+                    clean_label = label.replace(" *", "")
+                    missing_fields.append(clean_label)
+        
+        return missing_fields
+
+    def _calculate_zoom_range(self, x0, hist=None, xs_plot=None):
+        """Calculate appropriate zoom range based on zoom setting."""
+        if self.zoom_out.get():  # Zoomed out view (current behavior)
+            if not hist:
+                xmin, xmax = x0 - 10, x0 + 10
+            else:
+                if xs_plot:
+                    center = (min(xs_plot) + max(xs_plot)) / 2
+                    span = max(xs_plot) - min(xs_plot)
+                    span = max(span, 4)  # Minimum span of 4
+                    xmin, xmax = center - span * 1.5, center + span * 1.5
+                else:
+                    xmin, xmax = x0 - 10, x0 + 10
+        else:  # Zoomed in view (previous behavior)
+            if not hist:
+                xmin, xmax = x0 - 5, x0 + 5
+            else:
+                if xs_plot:
+                    xmin, xmax = min(xs_plot) - 1, max(xs_plot) + 1
+                else:
+                    xmin, xmax = x0 - 5, x0 + 5
+        return xmin, xmax
+
+    def _on_zoom_changed(self):
+        """Handle zoom setting change by refreshing the graph."""
+        if hasattr(self, 'historia_actual') and self.historia_actual:
+            self.graficar()
+
+    def _update_result_display(self, result, method_name, iterations=None):
+        """Update the result display area with the calculated result."""
+        if result is not None:
+            # Show the result frame and update content
+            if not self.result_frame.winfo_viewable():
+                self.result_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+            
+            if method_name in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
+                self.result_label.config(text=f"{result:.8g}")
+                self.method_info_label.config(text=f"Integración: {method_name}")
+            else:
+                self.result_label.config(text=f"{result:.8g}")
+                if iterations is not None:
+                    self.method_info_label.config(text=f"Raíz encontrada en {iterations} iteraciones")
+                else:
+                    self.method_info_label.config(text=f"Raíz encontrada: {method_name}")
+        else:
+            # Hide the result frame when there's no result
+            if self.result_frame.winfo_viewable():
+                self.result_frame.pack_forget()
 
     def _update_table_headers(self):
         method = self.current_method.get()
@@ -321,8 +397,10 @@ class SimuladorRaices:
             cols = ("n", "x_n", "x_{n+1}", "err_abs", "err_rel")
         elif method == "Bisección":
             cols = ("n", "a", "b", "m", "f(m)", "err_abs", "err_rel")
-        else:  # Punto Fijo (+ Aitken)
+        elif method in ["Punto Fijo", "Punto Fijo + Aitken"]:
             cols = ("n", "x_n", "g(x_n)", "err_abs", "err_rel")
+        else:  # Integration methods
+            cols = ("Método", "a", "b", "m", "Resultado")
         self.tree["columns"] = cols
         for c in cols:
             self.tree.heading(c, text=c)
@@ -342,21 +420,49 @@ class SimuladorRaices:
             self.tree.insert("", "end", values=tuple(vals))
 
     def ejecutar(self):
+        # Validate required inputs first
+        missing_fields = self._validate_required_inputs()
+        if missing_fields:
+            messagebox.showerror(
+                "Campos requeridos faltantes", 
+                f"Los siguientes campos son obligatorios: {', '.join(missing_fields)}"
+            )
+            return
+
         try:
             metodo = self.current_method.get()
-            f = make_safe_func(self.expr_f.get())
-            df = (
-                make_safe_func(self.expr_df.get())
-                if self.expr_df.get().strip()
-                else None
-            )
-            g = make_safe_func(self.expr_g.get())
-            x0 = float(self.var_x0.get())
-            x1 = float(self.var_x1.get())
-            a = float(self.var_a.get())
-            b = float(self.var_b.get())
-            tol = float(self.var_tol.get())
-            max_iter = int(self.var_max.get())
+            
+            # Get inputs based on method
+            f = None
+            df = None
+            g = None
+            x0 = None
+            x1 = None
+            a = None
+            b = None
+            tol = None
+            max_iter = None
+            
+            # Parse inputs based on what's available for the current method
+            if "f" in self.input_vars:
+                f = make_safe_func(self.input_vars["f"].get())
+            if "df" in self.input_vars and self.input_vars["df"].get().strip():
+                df = make_safe_func(self.input_vars["df"].get())
+            if "g" in self.input_vars:
+                g = make_safe_func(self.input_vars["g"].get())
+            if "x0" in self.input_vars:
+                x0 = float(self.input_vars["x0"].get())
+            if "x1" in self.input_vars:
+                x1 = float(self.input_vars["x1"].get())
+            if "a" in self.input_vars:
+                a = float(self.input_vars["a"].get())
+            if "b" in self.input_vars:
+                b = float(self.input_vars["b"].get())
+            if "tol" in self.input_vars:
+                tol = float(self.input_vars["tol"].get())
+            if "max_iter" in self.input_vars:
+                max_iter = int(self.input_vars["max_iter"].get())
+                
         except Exception as e:
             messagebox.showerror("Error", str(e))
             return
@@ -371,9 +477,15 @@ class SimuladorRaices:
             elif metodo == "Punto Fijo":
                 self._verificar_contraccion(g, x0)
                 root, hist = punto_fijo(g, x0, tol, max_iter)
-            else:
+            elif metodo == "Punto Fijo + Aitken":
                 self._verificar_contraccion(g, x0)
-                root, hist = punto_fijo_aitken(g, x0, tol, max_iter)
+                root, hist = punto_fijo_aitken(f, g, x0, tol, max_iter)
+            else:  # Integration methods
+                n = int(self.input_vars["n"].get()) if "n" in self.input_vars else 11
+                result, plan = integrar_nc_compuesto(f, a, b, n, metodo=metodo)
+                # Convert integration result to history format for consistency
+                hist = [(tag, ai, bi, m, result) for tag, ai, bi, m in plan]
+                root = result
         except Exception as e:
             messagebox.showerror("Error en ejecución", str(e))
             return
@@ -382,25 +494,64 @@ class SimuladorRaices:
         self.ultimo_resultado = root
         self._llenar_tabla(hist)
 
+        # Update result display
+        iterations = len(hist) if hist else None
+        self._update_result_display(root, metodo, iterations)
+
         if root is not None:
-            self._status_ok(f"Convergió a {root:.6g}")
+            if metodo in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
+                self._status_ok(f"Integración completada: {root:.6g}")
+            else:
+                self._status_ok(f"Convergió a {root:.6g}")
         else:
             self._status_err("No convergió con los parámetros dados")
         self.graficar()
 
     def comparar_metodos(self):
-        try:
-            f = make_safe_func(self.expr_f.get())
-            df = (
-                make_safe_func(self.expr_df.get())
-                if self.expr_df.get().strip()
-                else None
+        # Check if current method is an integration method
+        method = self.current_method.get()
+        if method in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
+            messagebox.showinfo(
+                "Información", 
+                "La comparación de métodos no está disponible para métodos de integración. "
+                "Use diferentes métodos de integración individualmente para comparar resultados."
             )
-            g = make_safe_func(self.expr_g.get())
-            x0 = float(self.var_x0.get())
-            x1 = float(self.var_x1.get())
-            tol = float(self.var_tol.get())
-            max_iter = int(self.var_max.get())
+            return
+            
+        # Validate required inputs first
+        missing_fields = self._validate_required_inputs()
+        if missing_fields:
+            messagebox.showerror(
+                "Campos requeridos faltantes", 
+                f"Los siguientes campos son obligatorios: {', '.join(missing_fields)}"
+            )
+            return
+
+        try:
+            # Get inputs based on current method configuration
+            f = None
+            df = None
+            g = None
+            x0 = None
+            x1 = None
+            tol = None
+            max_iter = None
+            
+            if "f" in self.input_vars:
+                f = make_safe_func(self.input_vars["f"].get())
+            if "df" in self.input_vars and self.input_vars["df"].get().strip():
+                df = make_safe_func(self.input_vars["df"].get())
+            if "g" in self.input_vars:
+                g = make_safe_func(self.input_vars["g"].get())
+            if "x0" in self.input_vars:
+                x0 = float(self.input_vars["x0"].get())
+            if "x1" in self.input_vars:
+                x1 = float(self.input_vars["x1"].get())
+            if "tol" in self.input_vars:
+                tol = float(self.input_vars["tol"].get())
+            if "max_iter" in self.input_vars:
+                max_iter = int(self.input_vars["max_iter"].get())
+                
         except Exception as e:
             messagebox.showerror("Error", str(e))
             return
@@ -432,7 +583,7 @@ class SimuladorRaices:
 
         try:
             self._verificar_contraccion(g, x0, solo_warn=True)
-            ra, ha = punto_fijo_aitken(g, x0, tol, max_iter)
+            ra, ha = punto_fijo_aitken(f, g, x0, tol, max_iter)
             resultados["Aitken"] = ra
             historias["Aitken"] = ha
         except Exception as e:
@@ -441,7 +592,22 @@ class SimuladorRaices:
         self.historia_comparacion = historias
         self._mostrar_resumen_comparacion(resultados, historias)
         self._grafica_comparacion(f, g, historias)
-        self.nb.select(2)
+        
+        # Update result display with comparison summary
+        if resultados:
+            # Show the first successful result
+            for method_name, result in resultados.items():
+                if result is not None:
+                    iterations = len(historias.get(method_name, []))
+                    self._update_result_display(result, method_name, iterations)
+                    break
+            else:
+                # No successful results found
+                self._update_result_display(None, "Comparación")
+        else:
+            self._update_result_display(None, "Comparación")
+            
+        self.nb.select(0)  # Switch to main tab (first tab)
 
     def _mostrar_resumen_comparacion(self, resultados, historias):
         for row in self.tree.get_children():
@@ -465,8 +631,15 @@ class SimuladorRaices:
                 if len(rec) > 1 and isinstance(rec[1], (int, float)):
                     xs.append(float(rec[1]))
         if not xs:
-            xs = [float(self.var_x0.get())]
-        xmin, xmax = min(xs) - 1, max(xs) + 1
+            # Try to get x0 from input vars
+            if "x0" in self.input_vars:
+                xs = [float(self.input_vars["x0"].get())]
+            else:
+                xs = [0.0]
+        
+        # Calculate zoom range based on setting
+        x0_default = float(self.input_vars["x0"].get()) if "x0" in self.input_vars else 0.0
+        xmin, xmax = self._calculate_zoom_range(x0_default, None, xs)
         X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
 
         self.ax.clear()
@@ -490,7 +663,11 @@ class SimuladorRaices:
                 )
             except Exception:
                 pass
+        self.ax.grid(True, alpha=0.3)
         self.ax.legend()
+        self.ax.set_xlabel('x')
+        self.ax.set_ylabel('y')
+        self.ax.set_title('Comparación de Métodos')
         self.canvas.draw()
 
     def graficar(self):
@@ -498,21 +675,51 @@ class SimuladorRaices:
             return
         metodo = self.current_method.get()
         try:
-            f = make_safe_func(self.expr_f.get())
-            g = make_safe_func(self.expr_g.get())
-            x0 = float(self.var_x0.get())
+            f = None
+            g = None
+            x0 = None
+            
+            if "f" in self.input_vars:
+                f = make_safe_func(self.input_vars["f"].get())
+            if "g" in self.input_vars:
+                g = make_safe_func(self.input_vars["g"].get())
+            if "x0" in self.input_vars:
+                x0 = float(self.input_vars["x0"].get())
         except Exception:
             return
 
         hist = self.historia_actual
         self.ax.clear()
-        if not hist:
-            xmin, xmax = x0 - 5, x0 + 5
-        else:
-            xs_plot = [rec[1] for rec in hist if isinstance(rec[1], (int, float))]
-            xmin, xmax = (
-                (min(xs_plot) - 1, max(xs_plot) + 1) if xs_plot else (x0 - 5, x0 + 5)
-            )
+        
+        # Handle integration methods differently
+        if metodo in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
+            if "a" in self.input_vars and "b" in self.input_vars:
+                a = float(self.input_vars["a"].get())
+                b = float(self.input_vars["b"].get())
+                xmin, xmax = a, b
+                X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
+                
+                try:
+                    Y = [f(x) for x in X]
+                    self.ax.plot(X, Y, label="f(x)")
+                    self.ax.axhline(0, color="k", ls="--")
+                    
+                    # Shade integration area
+                    if hist:
+                        for rec in hist:
+                            if len(rec) >= 4:
+                                tag, ai, bi, m = rec[:4]
+                                self.ax.axvspan(ai, bi, alpha=0.12, label=f"Bloque {tag}")
+                    
+                    self.ax.legend()
+                    self.canvas.draw()
+                except Exception:
+                    pass
+            return
+        
+        # Calculate zoom range based on setting
+        xs_plot = [rec[1] for rec in hist if isinstance(rec[1], (int, float))] if hist else []
+        xmin, xmax = self._calculate_zoom_range(x0, hist, xs_plot)
         X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
 
         if metodo in ("Punto Fijo", "Punto Fijo + Aitken"):
@@ -559,7 +766,11 @@ class SimuladorRaices:
                     )
             except Exception:
                 pass
+        self.ax.grid(True, alpha=0.3)
         self.ax.legend()
+        self.ax.set_xlabel('x')
+        self.ax.set_ylabel('y')
+        self.ax.set_title(f'Gráfica - {metodo}')
         self.canvas.draw()
 
     def animar(self):
@@ -575,16 +786,31 @@ class SimuladorRaices:
             )
             return
         metodo = self.current_method.get()
+        
+        # Check if current method is an integration method
+        if metodo in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
+            messagebox.showinfo(
+                "Información", 
+                "La animación no está disponible para métodos de integración. "
+                "Use la función de graficar para visualizar el resultado."
+            )
+            return
         try:
-            f = make_safe_func(self.expr_f.get())
-            g = make_safe_func(self.expr_g.get())
+            f = None
+            g = None
+            
+            if "f" in self.input_vars:
+                f = make_safe_func(self.input_vars["f"].get())
+            if "g" in self.input_vars:
+                g = make_safe_func(self.input_vars["g"].get())
         except Exception as e:
             messagebox.showerror("Error", str(e))
             return
 
         self.ax.clear()
         xs_plot = [rec[1] for rec in hist if isinstance(rec[1], (int, float))]
-        xmin, xmax = (min(xs_plot) - 1, max(xs_plot) + 1) if xs_plot else (-5, 5)
+        x0_default = float(self.input_vars["x0"].get()) if "x0" in self.input_vars else 0.0
+        xmin, xmax = self._calculate_zoom_range(x0_default, hist, xs_plot)
         X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
         if metodo in ("Punto Fijo", "Punto Fijo + Aitken"):
             Yg = [g(x) for x in X]
@@ -595,7 +821,11 @@ class SimuladorRaices:
             self.ax.plot(X, Y, label="f(x)")
             self.ax.axhline(0, color="k", ls="--")
         (linea_iter,) = self.ax.plot([], [], "o-", label="Iteraciones")
+        self.ax.grid(True, alpha=0.3)
         self.ax.legend()
+        self.ax.set_xlabel('x')
+        self.ax.set_ylabel('y')
+        self.ax.set_title(f'Animación - {metodo}')
 
         if metodo in ("Punto Fijo", "Punto Fijo + Aitken"):
             ys = [g(x) for x in xs_plot]
@@ -619,7 +849,7 @@ class SimuladorRaices:
             blit=True,
         )
         self.canvas.draw()
-        self.nb.select(2)
+        self.nb.select(0)  # Switch to main tab (first tab)
 
     def guardar_csv(self):
         if not self.historia_actual and not self.historia_comparacion:
@@ -697,12 +927,30 @@ class SimuladorRaices:
         if self.ax and self.canvas:
             self.ax.clear()
             self.canvas.draw()
+        # Clear and hide result display
+        if self.result_frame.winfo_viewable():
+            self.result_frame.pack_forget()
+        self.result_label.config(text="")
+        self.method_info_label.config(text="")
         self._status_ok("Limpio")
 
     def sugerir_g(self):
+        # Check if current method is an integration method
+        method = self.current_method.get()
+        if method in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
+            messagebox.showinfo(
+                "Información", 
+                "La sugerencia de g(x) solo está disponible para métodos de punto fijo."
+            )
+            return
+        
+            
         try:
-            x0 = float(self.var_x0.get())
-            cands = sugerir_g_desde_f(self.expr_f.get(), x0, make_safe_func)
+            if "x0" not in self.input_vars or "f" not in self.input_vars:
+                messagebox.showerror("Error", "Este método requiere f(x) y x0")
+                return
+            x0 = float(self.input_vars["x0"].get())
+            cands = sugerir_g_desde_f(self.input_vars["f"].get(), x0, make_safe_func)
         except Exception as e:
             messagebox.showerror("Error", str(e))
             return
@@ -721,8 +969,8 @@ class SimuladorRaices:
 
         def aplicar():
             sel = lb.curselection()
-            if sel:
-                self.expr_g.set(lb.get(sel[0]))
+            if sel and "g" in self.input_vars:
+                self.input_vars["g"].set(lb.get(sel[0]))
             dlg.destroy()
 
         ttk.Button(dlg, text="Usar selección", command=aplicar).pack(pady=8)
@@ -748,7 +996,7 @@ class SimuladorRaices:
                 self._status_err(msg + "≥ 1 (puede no converger)")
             else:
                 messagebox.showwarning(
-                    "Advertencia de convergencia", msg + ": puede divergir."
+                    "Advertencia de convergencia", msg + ": puede diverger."
                 )
 
     def _status_ok(self, msg: str):
