@@ -32,7 +32,7 @@ class SimuladorRaices:
     def __init__(self, master: tk.Tk):
         self.master = master
         master.title("Laboratorio de Métodos Numéricos – Raíces")
-        master.geometry("1050x700")
+        master.geometry("1200x700")  # Increased default width from 1050 to 1200
 
         self.current_method = tk.StringVar(value="Newton-Raphson")
         self.decimals = tk.IntVar(value=6)
@@ -79,7 +79,7 @@ class SimuladorRaices:
                 "tol": (True, "tol *", "1e-8"),
                 "max_iter": (True, "max iter *", "50")
             },
-            "Derivada (Diferencias Finitas)": {
+            "Derivada - Diferencias Finitas": {  # Updated key to match dropdown
                 "f": (True, "f(x) *", "sin(x)"),
                 "x": (True, "x *", "1.0"),
                 "h": (True, "h *", "1e-4"),
@@ -372,6 +372,10 @@ class SimuladorRaices:
                     xmin, xmax = min(xs_plot) - 1, max(xs_plot) + 1
                 else:
                     xmin, xmax = x0 - 5, x0 + 5
+
+        # Ensure zoom range is within reasonable bounds
+        xmin = max(xmin, -1e6)
+        xmax = min(xmax, 1e6)
         return xmin, xmax
 
     def _on_zoom_changed(self):
@@ -410,7 +414,7 @@ class SimuladorRaices:
             cols = ("n", "a", "b", "m", "f(m)", "err_abs", "err_rel")
         elif method in ["Punto Fijo", "Punto Fijo + Aitken"]:
             cols = ("n", "x_n", "g(x_n)", "err_abs", "err_rel")
-        elif method == "Derivada (Diferencias Finitas)":
+        elif method == "Derivada - Diferencias Finitas":
             cols = ("nivel", "h", "etiqueta", "evals", "aprox", "err_est")
         else:  # Integration methods
             cols = ("Método", "a", "b", "m", "Resultado")
@@ -520,7 +524,7 @@ class SimuladorRaices:
         self._update_result_display(root, metodo, iterations)
 
         if root is not None:
-            if metodo == "Derivada (Diferencias Finitas)":
+            if metodo == "Derivada - Diferencias Finitas":
                 self._status_ok(f"Derivada ≈ {root:.6g}")
             elif metodo in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
                 self._status_ok(f"Integración completada: {root:.6g}")
@@ -701,8 +705,8 @@ class SimuladorRaices:
             f = None
             g = None
             x0 = None
-            x_der = None
-            
+
+            # Ensure the correct function is selected based on the method
             if "f" in self.input_vars:
                 f = make_safe_func(self.input_vars["f"].get())
             if "g" in self.input_vars:
@@ -715,54 +719,7 @@ class SimuladorRaices:
         hist = self.historia_actual
         self.ax.clear()
 
-        if metodo == "Derivada - Diferencias Finitas":
-        try:
-            x_centro = x_der if x_der is not None else 0.0
-            xmin, xmax = self._calculate_zoom_range(x_centro, hist, [x_centro])
-            X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
-            Y = [f(x) for x in X]
-            self.ax.plot(X, Y, label="f(x)")
-            if self.ultimo_resultado is not None and x_der is not None:
-                y0 = f(x_der)
-                Yt = [self.ultimo_resultado * (x - x_der) + y0 for x in X]
-                self.ax.plot(X, Yt, "--", label="Recta tangente aprox.")
-                self.ax.plot([x_der], [y0], "ro", label="x, f(x)")
-            self.ax.grid(True, alpha=0.3)
-            self.ax.legend()
-            self.ax.set_xlabel('x'); self.ax.set_ylabel('y')
-            self.ax.set_title('Derivada por Diferencias Finitas')
-            self.canvas.draw()
-        except Exception:
-            pass
-        return
-        
-        # Handle integration methods differently
-        if metodo in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
-            if "a" in self.input_vars and "b" in self.input_vars:
-                a = float(self.input_vars["a"].get())
-                b = float(self.input_vars["b"].get())
-                xmin, xmax = a, b
-                X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
-                
-                try:
-                    Y = [f(x) for x in X]
-                    self.ax.plot(X, Y, label="f(x)")
-                    self.ax.axhline(0, color="k", ls="--")
-                    
-                    # Shade integration area
-                    if hist:
-                        for rec in hist:
-                            if len(rec) >= 4:
-                                tag, ai, bi, m = rec[:4]
-                                self.ax.axvspan(ai, bi, alpha=0.12, label=f"Bloque {tag}")
-                    
-                    self.ax.legend()
-                    self.canvas.draw()
-                except Exception:
-                    pass
-            return
-        
-        # Calculate zoom range based on setting
+        # Handle zoom range calculation
         xs_plot = [rec[1] for rec in hist if isinstance(rec[1], (int, float))] if hist else []
         xmin, xmax = self._calculate_zoom_range(x0, hist, xs_plot)
         X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
@@ -831,7 +788,7 @@ class SimuladorRaices:
             )
             return
         metodo = self.current_method.get()
-        
+
         # Check if current method is an integration method
         if metodo in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
             messagebox.showinfo(
@@ -843,7 +800,7 @@ class SimuladorRaices:
         try:
             f = None
             g = None
-            
+
             if "f" in self.input_vars:
                 f = make_safe_func(self.input_vars["f"].get())
             if "g" in self.input_vars:
@@ -851,6 +808,12 @@ class SimuladorRaices:
         except Exception as e:
             messagebox.showerror("Error", str(e))
             return
+
+        # Ensure ax is properly initialized
+        if self.ax is None:
+            self.fig, self.ax = plt.subplots(figsize=(7.5, 4.5))
+            self.canvas = FigureCanvasTkAgg(self.fig, master=self.master)
+            self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, pady=6)
 
         self.ax.clear()
         xs_plot = [rec[1] for rec in hist if isinstance(rec[1], (int, float))]
@@ -891,7 +854,7 @@ class SimuladorRaices:
             init_func=init,
             frames=len(xs_plot),
             interval=600,
-            blit=True,
+            blit=False,  # Disable blitting to avoid backend issues
         )
         self.canvas.draw()
         self.nb.select(0)  # Switch to main tab (first tab)

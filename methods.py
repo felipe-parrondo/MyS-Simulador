@@ -1,5 +1,6 @@
-from typing import Callable, Optional, List, Tuple
+from typing import Callable, Optional, List, Tuple, Literal
 from utils import numerical_derivative
+import math
 
 # ==========================
 # Métodos numéricos
@@ -90,50 +91,41 @@ def punto_fijo(g: Callable[[float], float], x0: float, tol: float = 1e-8, max_it
     return None, history
 
 def punto_fijo_aitken(f: Callable[[float], float], g: Callable[[float], float], x0: float, tol: float = 1e-8, max_iter: int = 50):
-    """
-    Fixed-point iteration with Aitken's delta-squared acceleration.
-    
-    Args:
-        f: The function f(x) = 0 to solve (for validation)
-        g: The function g(x) = x for fixed-point iteration
-        x0: Initial guess
-        tol: Tolerance for convergence
-        max_iter: Maximum number of iterations
-    
-    Returns:
-        (root, history): Root found and iteration history
-    """
     history = []
     x = x0
-    
+
     for n in range(max_iter):
         # Generate three consecutive terms for Aitken acceleration
         x1 = g(x)      # x_{n+1}
         x2 = g(x1)     # x_{n+2}
-        
+
         # Apply Aitken's delta-squared acceleration
         denom = x2 - 2*x1 + x
         if abs(denom) < 1e-14:  # Numerical stability check
             x_acc = x2  # Fallback to regular iteration
         else:
             x_acc = x - (x1 - x)**2 / denom
-        
+
+        # Validate x_acc to ensure it's within a reasonable range
+        if not (math.isfinite(x_acc) and abs(x_acc) < 1e10):
+            raise ValueError(f"Numerical instability detected at iteration {n}: x_acc={x_acc}")
+
         # Calculate errors
         abs_err = abs(x_acc - x)
         rel_err = abs_err / abs(x_acc) if x_acc != 0 else float('inf')
-        
+
         # Store iteration info
         history.append((n, x, x_acc, abs_err, rel_err))
-        
+
         # Check convergence
         if abs_err < tol:
             # Verify that the result is actually a root of f(x) = 0
             f_val = f(x_acc)
             if abs(f_val) < tol * 10:  # Allow some tolerance for f(x)
                 return x_acc, history
-        
+
         x = x_acc  # Use accelerated value for next iteration
-    
+
     return None, history
 
 def simpson13_bloque(f,a,b):
