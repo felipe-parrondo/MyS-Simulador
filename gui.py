@@ -15,6 +15,7 @@ from methods import (
     simpson38_bloque,
     boole_bloque,
     integrar_nc_compuesto,
+    derivada_diferencias_finitas
 )
 
 try:
@@ -78,6 +79,13 @@ class SimuladorRaices:
                 "tol": (True, "tol *", "1e-8"),
                 "max_iter": (True, "max iter *", "50")
             },
+            "Derivada (Diferencias Finitas)": {
+                "f": (True, "f(x) *", "sin(x)"),
+                "x": (True, "x *", "1.0"),
+                "h": (True, "h *", "1e-4"),
+                "esquema": (True, "esquema [progresiva|regresiva|central] *", "central"),
+                "d": (True, "orden derivada [1|2] *", "1"),
+            },
             "Simpson 1/3": {
                 "f": (True, "f(x) *", "sin(x)"),
                 "a": (True, "a *", "0"),
@@ -136,6 +144,7 @@ class SimuladorRaices:
                 "Bisección",
                 "Punto Fijo",
                 "Punto Fijo + Aitken",
+                "Derivada - Diferencias Finitas",
                 "Simpson 1/3",
                 "Simpson 3/8",
                 "Boole",
@@ -266,6 +275,8 @@ class SimuladorRaices:
             "• Secante: no requiere derivada. Convergencia superlineal.\n"
             "• Punto Fijo: requiere g(x). Converge si |g'(x*)|<1 (contracción).\n"
             "• Aitken: acelera la convergencia del punto fijo.\n\n"
+            "DERIVADAS:\n"
+            "• Diferencias Finitas: 1ª o 2ª derivada con esquemas progresivo, regresivo o central.\n\n"
             "INTEGRACIÓN:\n"
             "• Simpson 1/3: regla compuesta de Simpson 1/3 para integración numérica.\n"
             "• Simpson 3/8: regla compuesta de Simpson 3/8 para integración numérica.\n"
@@ -399,6 +410,8 @@ class SimuladorRaices:
             cols = ("n", "a", "b", "m", "f(m)", "err_abs", "err_rel")
         elif method in ["Punto Fijo", "Punto Fijo + Aitken"]:
             cols = ("n", "x_n", "g(x_n)", "err_abs", "err_rel")
+        elif method == "Derivada (Diferencias Finitas)":
+            cols = ("nivel", "h", "etiqueta", "evals", "aprox", "err_est")
         else:  # Integration methods
             cols = ("Método", "a", "b", "m", "Resultado")
         self.tree["columns"] = cols
@@ -462,6 +475,14 @@ class SimuladorRaices:
                 tol = float(self.input_vars["tol"].get())
             if "max_iter" in self.input_vars:
                 max_iter = int(self.input_vars["max_iter"].get())
+            if "x" in self.input_vars:
+                x = float(self.input_vars["x"].get())
+            if "h" in self.input_vars:
+                h = float(self.input_vars["h"].get())
+            if "esquema" in self.input_vars:
+                esquema = self.input_vars["esquema"].get().strip().lower()
+            if "d" in self.input_vars:
+                d_ord = int(self.input_vars["d"].get())
                 
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -499,7 +520,9 @@ class SimuladorRaices:
         self._update_result_display(root, metodo, iterations)
 
         if root is not None:
-            if metodo in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
+            if metodo == "Derivada (Diferencias Finitas)":
+                self._status_ok(f"Derivada ≈ {root:.6g}")
+            elif metodo in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
                 self._status_ok(f"Integración completada: {root:.6g}")
             else:
                 self._status_ok(f"Convergió a {root:.6g}")
@@ -678,6 +701,7 @@ class SimuladorRaices:
             f = None
             g = None
             x0 = None
+            x_der = None
             
             if "f" in self.input_vars:
                 f = make_safe_func(self.input_vars["f"].get())
@@ -690,6 +714,27 @@ class SimuladorRaices:
 
         hist = self.historia_actual
         self.ax.clear()
+
+        if metodo == "Derivada - Diferencias Finitas":
+        try:
+            x_centro = x_der if x_der is not None else 0.0
+            xmin, xmax = self._calculate_zoom_range(x_centro, hist, [x_centro])
+            X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
+            Y = [f(x) for x in X]
+            self.ax.plot(X, Y, label="f(x)")
+            if self.ultimo_resultado is not None and x_der is not None:
+                y0 = f(x_der)
+                Yt = [self.ultimo_resultado * (x - x_der) + y0 for x in X]
+                self.ax.plot(X, Yt, "--", label="Recta tangente aprox.")
+                self.ax.plot([x_der], [y0], "ro", label="x, f(x)")
+            self.ax.grid(True, alpha=0.3)
+            self.ax.legend()
+            self.ax.set_xlabel('x'); self.ax.set_ylabel('y')
+            self.ax.set_title('Derivada por Diferencias Finitas')
+            self.canvas.draw()
+        except Exception:
+            pass
+        return
         
         # Handle integration methods differently
         if metodo in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
