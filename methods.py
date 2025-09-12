@@ -186,3 +186,73 @@ def integrar_nc_compuesto(f, a, b, n, metodo="Simpson 1/3"):
         raise ValueError("Método no reconocido")
 
     return I, plan
+
+Esquema = Literal["progresiva", "regresiva", "central"]
+
+def derivada_diferencias_finitas(
+    f: Callable[[float], float],
+    x: float,
+    h: float = 1e-5,
+    esquema: Esquema = "central",
+    derivada: int = 1,
+) -> Tuple[Optional[float], List[Tuple[int, float, str, int, float, float]]]:
+    """
+    Derivación numérica por diferencias finitas (discretas y paso uniforme h).
+
+    Teoría usada (únicamente la del apunte):
+    - 1ª derivada:
+        * Progresiva:  f'(x_i) ≈ [f(x_{i+1}) - f(x_i)] / h
+        * Regresiva:   f'(x_i) ≈ [f(x_i) - f(x_{i-1})] / h
+        * Central:     f'(x_i) ≈ [f(x_{i+1}) - f(x_{i-1})] / (2h)
+    - 2ª derivada:
+        * Progresiva:  f''(x_i) ≈ [f(x_{i+2}) - 2 f(x_{i+1}) + f(x_i)] / h^2
+        * Regresiva:   f''(x_i) ≈ [f(x_i) - 2 f(x_{i-1}) + f(x_{i-2})] / h^2
+        * Central:     f''(x_i) ≈ [f(x_{i+1}) - 2 f(x_i) + f(x_{i-1})] / h^2
+
+    Args:
+        f: función escalar f(x).
+        x: punto donde aproximar la derivada.
+        h: paso (> 0).
+        esquema: 'progresiva' | 'regresiva' | 'central'.
+        derivada: 1 para f'(x), 2 para f''(x).
+
+    Returns:
+        (valor, history)
+        - valor: aproximación numérica (o None si combinación inválida).
+        - history: [(nivel, h, etiqueta, evals, aproximacion, err_est)], con un solo nivel.
+    """
+    if h <= 0:
+        raise ValueError("h debe ser > 0")
+    if esquema not in ("progresiva", "regresiva", "central"):
+        raise ValueError("Esquema no soportado")
+    if derivada not in (1, 2):
+        raise ValueError("Solo se admite derivada 1 o 2")
+
+    evals = 0
+    approx = None
+
+    if derivada == 1:
+        if esquema == "progresiva":
+            approx = (f(x + h) - f(x)) / h
+            evals = 2
+        elif esquema == "regresiva":
+            approx = (f(x) - f(x - h)) / h
+            evals = 2
+        elif esquema == "central":
+            approx = (f(x + h) - f(x - h)) / (2 * h)
+            evals = 2
+
+    elif derivada == 2:
+        if esquema == "progresiva":
+            approx = (f(x + 2*h) - 2.0 * f(x + h) + f(x)) / (h**2)
+            evals = 3
+        elif esquema == "regresiva":
+            approx = (f(x) - 2.0 * f(x - h) + f(x - 2*h)) / (h**2)
+            evals = 3
+        elif esquema == "central":
+            approx = (f(x + h) - 2.0 * f(x) + f(x - h)) / (h**2)
+            evals = 3
+
+    etiqueta = f"{esquema}-d{derivada}"
+    history = [(0, h, etiqueta, evals, float(approx), math.nan)]
+    return approx, history
