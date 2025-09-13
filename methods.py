@@ -83,7 +83,7 @@ def punto_fijo(g: Callable[[float], float], x0: float, tol: float = 1e-8, max_it
         x_next = g(x)
         abs_err = abs(x_next - x)
         rel_err = abs_err / abs(x_next) if x_next != 0 else float('inf')
-        history.append((n, x, x_next, abs_err, rel_err))
+        history.append((n, x, g(x), abs_err, rel_err))  # Ensure g(x) is included for graphing
         if abs_err < tol:
             history.append((n + 1, x_next, g(x_next), 0.0, 0.0))
             return x_next, history
@@ -138,42 +138,77 @@ def boole_bloque(f,a,b):
     h=(b-a)/4; return (2*h/45)*(7*f(a)+32*f(a+h)+12*f(a+2*h)+32*f(a+3*h)+7*f(b))
 
 def integrar_nc_compuesto(f, a, b, n, metodo="Simpson 1/3"):
-    if n<=0 or b<=a: raise ValueError("Datos inválidos")
-    h=(b-a)/n; k=0; xk=a; I=0.0; plan=[]
+    if n <= 0 or b <= a:
+        raise ValueError("Datos inválidos")
+    h = (b - a) / n
+    k = 0
+    xk = a
+    I = 0.0
+    plan = []
+
+    def safe_f(x):
+        # Handle singularity at x = 0 for sin(x)/x
+        if x == 0:
+            return 1  # Limit of sin(x)/x as x approaches 0
+        return f(x)
 
     def aplicar(m, tag):
-        nonlocal I,k,xk,plan
-        xi, xf = xk, xk+m*h
-        if tag=="S13": Ik=simpson13_bloque(f,xi,xf)
-        elif tag=="S38": Ik=simpson38_bloque(f,xi,xf)
-        elif tag=="BOOLE": Ik=boole_bloque(f,xi,xf)
-        elif tag=="TRAP": Ik = (xf-xi)*(f(xi)+f(xf))/2   # bloque trapecio (1)
-        elif tag=="MID":  Ik = (xf-xi)*f((xi+xf)/2)      # bloque rect. medio (1)
-        else: raise ValueError("Método desconocido")
-        I+=Ik; plan.append((tag,xi,xf,m)); xk=xf; k+=m
+        nonlocal I, k, xk, plan
+        xi, xf = xk, xk + m * h
+        if tag == "S13":
+            Ik = simpson13_bloque(safe_f, xi, xf)
+        elif tag == "S38":
+            Ik = simpson38_bloque(safe_f, xi, xf)
+        elif tag == "BOOLE":
+            Ik = boole_bloque(safe_f, xi, xf)
+        elif tag == "TRAP":
+            Ik = (xf - xi) * (safe_f(xi) + safe_f(xf)) / 2  # bloque trapecio (1)
+        elif tag == "MID":
+            Ik = (xf - xi) * safe_f((xi + xf) / 2)  # bloque rect. medio (1)
+        else:
+            raise ValueError("Método desconocido")
+        I += Ik
+        plan.append((tag, xi, xf, m))
+        xk = xf
+        k += m
 
-    if metodo=="Simpson 1/3":
-        while k+2<=n: aplicar(2,"S13")
-        if n-k==1:    # reemplazo final 2 -> 3
-            if plan and plan[-1][0]=="S13":
+    if metodo == "Simpson 1/3":
+        while k + 2 <= n:
+            aplicar(2, "S13")
+        if n - k == 1:  # reemplazo final 2 -> 3
+            if plan and plan[-1][0] == "S13":
                 # deshacer último bloque 1/3
-                _,xi,xf,_=plan.pop(); k-=2; xk=xi; I-=simpson13_bloque(f,xi,xf)
-            aplicar(3,"S38")
-    elif metodo=="Simpson 3/8":
-        while k+3<=n: aplicar(3,"S38")
-        resto=n-k
-        if resto==2: aplicar(2,"S13")
-        elif resto==1: aplicar(2,"S13"); aplicar(3,"S38")
-    elif metodo=="Boole":
-        while k+4<=n: aplicar(4,"BOOLE")
-        resto=n-k
-        if   resto==3: aplicar(3,"S38")
-        elif resto==2: aplicar(2,"S13")
-        elif resto==1: aplicar(3,"S38"); aplicar(2,"S13")
-    elif metodo=="Trapecio":
-        for _ in range(n): aplicar(1,"TRAP")
-    elif metodo=="Rectángulo Medio":
-        for _ in range(n): aplicar(1,"MID")
+                _, xi, xf, _ = plan.pop()
+                k -= 2
+                xk = xi
+                I -= simpson13_bloque(safe_f, xi, xf)
+            aplicar(3, "S38")
+    elif metodo == "Simpson 3/8":
+        while k + 3 <= n:
+            aplicar(3, "S38")
+        resto = n - k
+        if resto == 2:
+            aplicar(2, "S13")
+        elif resto == 1:
+            aplicar(2, "S13")
+            aplicar(3, "S38")
+    elif metodo == "Boole":
+        while k + 4 <= n:
+            aplicar(4, "BOOLE")
+        resto = n - k
+        if resto == 3:
+            aplicar(3, "S38")
+        elif resto == 2:
+            aplicar(2, "S13")
+        elif resto == 1:
+            aplicar(3, "S38")
+            aplicar(2, "S13")
+    elif metodo == "Trapecio":
+        for _ in range(n):
+            aplicar(1, "TRAP")
+    elif metodo == "Rectángulo Medio":
+        for _ in range(n):
+            aplicar(1, "MID")
     else:
         raise ValueError("Método no reconocido")
 

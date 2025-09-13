@@ -2,6 +2,7 @@ import csv
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from typing import Callable, Optional, List, Tuple, Dict
+import math
 
 import numpy as np
 from utils import make_safe_func, numerical_derivative, sugerir_g_desde_f
@@ -115,6 +116,12 @@ class SimuladorRaices:
                 "a": (True, "a *", "0"),
                 "b": (True, "b *", "3.14159"),
                 "n": (True, "n *", "11")
+            },
+            "Monte Carlo": {
+                "f": (True, "f(x) *", "sin(x)"),
+                "a": (True, "a *", "0"),
+                "b": (True, "b *", "3.14159"),
+                "n": (True, "n *", "1000")
             }
         }
 
@@ -150,6 +157,7 @@ class SimuladorRaices:
                 "Boole",
                 "Trapecio",
                 "Rectángulo Medio",
+                "Monte Carlo",  # Added Monte Carlo method
             ],
         )
         self.metodo_cb.pack(side=tk.LEFT, padx=6)
@@ -505,6 +513,10 @@ class SimuladorRaices:
             elif metodo == "Punto Fijo + Aitken":
                 self._verificar_contraccion(g, x0)
                 root, hist = punto_fijo_aitken(f, g, x0, tol, max_iter)
+            elif metodo == "Monte Carlo":
+                # Execute Monte Carlo method
+                self.ejecutar_montecarlo()
+                return
             else:  # Integration methods
                 n = int(self.input_vars["n"].get()) if "n" in self.input_vars else 11
                 result, plan = integrar_nc_compuesto(f, a, b, n, metodo=metodo)
@@ -673,7 +685,7 @@ class SimuladorRaices:
         try:
             Y = [f(x) for x in X]
             self.ax.plot(X, Y, label="f(x)")
-            self.ax.axhline(0, color="k", ls="--")
+            self.ax.axhline(0, color="k", ls="--", label="Eje x")
         except Exception:
             pass
 
@@ -703,73 +715,88 @@ class SimuladorRaices:
         metodo = self.current_method.get()
         try:
             f = None
-            g = None
-            x0 = None
+            a = None
+            b = None
 
-            # Ensure the correct function is selected based on the method
             if "f" in self.input_vars:
-                f = make_safe_func(self.input_vars["f"].get())
-            if "g" in self.input_vars:
-                g = make_safe_func(self.input_vars["g"].get())
-            if "x0" in self.input_vars:
-                x0 = float(self.input_vars["x0"].get())
+                raw_f = self.input_vars["f"].get()
+
+                # Create a safe version of the function to handle singularities
+                def safe_f(x):
+                    if x == 0:
+                        return 1  # Limit of sin(x)/x as x approaches 0
+                    return make_safe_func(raw_f)(x)
+
+                f = safe_f
+
+            if "a" in self.input_vars:
+                a = self._parse_input(self.input_vars["a"].get())
+            if "b" in self.input_vars:
+                b = self._parse_input(self.input_vars["b"].get())
         except Exception:
             return
 
         hist = self.historia_actual
         self.ax.clear()
+        has_labels = False  # Track if any labels are added
 
-        # Handle zoom range calculation
+        if metodo in ["Simpson 1/3", "Simpson 3/8", "Boole", "Trapecio", "Rectángulo Medio"]:
+            if a is not None and b is not None:
+                xmin, xmax = a, b
+                X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
+
+                try:
+                    Y = [f(x) for x in X]
+                    self.ax.plot(X, Y, label="f(x)")
+                    has_labels = True
+                    self.ax.axhline(0, color="k", ls="--", label="Eje x")
+
+                    # Fill the area under the curve for each integration block
+                    if hist:
+                        for rec in hist:
+                            if len(rec) >= 4:
+                                tag, ai, bi, m = rec[:4]
+                                x_fill = [ai + i * (bi - ai) / 100 for i in range(101)]
+                                y_fill = [f(x) for x in x_fill]
+                                self.ax.fill_between(x_fill, y_fill, color="skyblue", alpha=0.5, label=f"Área {tag}")
+                                has_labels = True
+
+                    if has_labels:
+                        self.ax.legend()
+                    self.ax.set_xlim(xmin, xmax)  # Ensure the full range is shown
+                    self.canvas.draw()
+                except Exception:
+                    pass
+            return
+
+        # Handle other methods (e.g., root-finding)
         xs_plot = [rec[1] for rec in hist if isinstance(rec[1], (int, float))] if hist else []
-        xmin, xmax = self._calculate_zoom_range(x0, hist, xs_plot)
+        xmin, xmax = self._calculate_zoom_range(xs_plot[0] if xs_plot else 0, hist, xs_plot)
         X = [xmin + i * (xmax - xmin) / 600 for i in range(601)]
 
-        if metodo in ("Punto Fijo", "Punto Fijo + Aitken"):
-            try:
-                Yg = [g(x) for x in X]
-                self.ax.plot(X, Yg, label="g(x)")
-                self.ax.plot(X, X, "--", label="y=x")
-                if hist:
-                    xs_plot = [
-                        rec[1] for rec in hist if isinstance(rec[1], (int, float))
-                    ]
-                    self.ax.plot(
-                        xs_plot, [g(x) for x in xs_plot], "o-", label="Iteraciones"
-                    )
-                if self.ultimo_resultado is not None:
-                    self.ax.plot(
-                        self.ultimo_resultado,
-                        self.ultimo_resultado,
-                        "ro",
-                        markersize=8,
-                        label="Punto fijo estimado",
-                    )
-            except Exception:
-                pass
-        else:
-            try:
-                Y = [f(x) for x in X]
-                self.ax.plot(X, Y, label="f(x)")
-                self.ax.axhline(0, color="k", ls="--")
-                if hist:
-                    xs_plot = [
-                        rec[1] for rec in hist if isinstance(rec[1], (int, float))
-                    ]
-                    self.ax.plot(
-                        xs_plot, [f(x) for x in xs_plot], "o-", label="Iteraciones"
-                    )
-                if self.ultimo_resultado is not None:
-                    self.ax.plot(
-                        self.ultimo_resultado,
-                        0,
-                        "ro",
-                        markersize=8,
-                        label="Raíz estimada",
-                    )
-            except Exception:
-                pass
+        try:
+            Y = [f(x) for x in X]
+            self.ax.plot(X, Y, label="f(x)")
+            has_labels = True
+            self.ax.axhline(0, color="k", ls="--", label="Eje x")
+            if hist:
+                xs_plot = [rec[1] for rec in hist if isinstance(rec[1], (int, float))]
+                self.ax.plot(xs_plot, [f(x) for x in xs_plot], "o-", label="Iteraciones")
+                has_labels = True
+            if self.ultimo_resultado is not None:
+                self.ax.plot(
+                    self.ultimo_resultado,
+                    0,
+                    "ro",
+                    markersize=8,
+                    label="Raíz estimada",
+                )
+                has_labels = True
+        except Exception:
+            pass
         self.ax.grid(True, alpha=0.3)
-        self.ax.legend()
+        if has_labels:
+            self.ax.legend()
         self.ax.set_xlabel('x')
         self.ax.set_ylabel('y')
         self.ax.set_title(f'Gráfica - {metodo}')
@@ -1012,3 +1039,49 @@ class SimuladorRaices:
 
     def _status_err(self, msg: str):
         self.lbl_estado.configure(text=msg)
+
+    def _parse_input(self, value: str):
+        """Parse user input to handle constants like pi and e."""
+        try:
+            # Replace constants with their numerical values
+            value = value.replace("pi", str(math.pi)).replace("e", str(math.e))
+            return eval(value)  # Safely evaluate the expression
+        except Exception:
+            raise ValueError(f"Invalid input: {value}")
+
+    def ejecutar_montecarlo(self):
+        """Executes the Monte Carlo method for integration."""
+        # Validate required inputs first
+        missing_fields = self._validate_required_inputs()
+        if missing_fields:
+            messagebox.showerror(
+                "Campos requeridos faltantes", 
+                f"Los siguientes campos son obligatorios: {', '.join(missing_fields)}"
+            )
+            return
+
+        try:
+            # Parse inputs
+            f = make_safe_func(self.input_vars["f"].get()) if "f" in self.input_vars else None
+            a = float(self.input_vars["a"].get()) if "a" in self.input_vars else None
+            b = float(self.input_vars["b"].get()) if "b" in self.input_vars else None
+            n = int(self.input_vars["n"].get()) if "n" in self.input_vars else 1000
+
+            if not (f and a is not None and b is not None):
+                raise ValueError("Faltan entradas necesarias para ejecutar el método Monte Carlo.")
+
+            # Monte Carlo integration
+            import random
+            samples = [random.uniform(a, b) for _ in range(n)]
+            integral = (b - a) * sum(f(x) for x in samples) / n
+
+            # Display result
+            self.ultimo_resultado = integral
+            self._status_ok(f"Resultado del método Monte Carlo: {integral:.6g}")
+
+            # Update graph
+            self.historia_actual = [("Monte Carlo", a, b, n, integral)]
+            self.graficar()
+
+        except Exception as e:
+            messagebox.showerror("Error en ejecución", str(e))
